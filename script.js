@@ -97,28 +97,53 @@ startCameraBtn.addEventListener('click', async () => {
 async function recognizeTextWithOCR(imageData) {
     try {
         // Base64'ten sadece data kısmını al
-        const base64Data = imageData.includes(',') ? imageData.split(',')[1] : imageData;
+        let base64Data = imageData.includes(',') ? imageData.split(',')[1] : imageData;
+        
+        // Base64'ü temizle (boşluk, satır sonu vs. kaldır)
+        base64Data = base64Data.replace(/\s/g, '');
+        
+        // Base64 boyutunu kontrol et
+        const base64Size = (base64Data.length * 3) / 4;
+        console.log('Base64 boyutu:', (base64Size / 1024).toFixed(2), 'KB');
+        
+        if (base64Size > 1000000) {
+            throw new Error('Görüntü çok büyük (max 1MB). Lütfen daha küçük bir görüntü deneyin.');
+        }
         
         const formData = new FormData();
         formData.append('base64Image', base64Data);
         formData.append('language', 'tur'); // Türkçe
         formData.append('apikey', OCR_API_KEY);
         formData.append('isOverlayRequired', 'false');
-        formData.append('detectOrientation', 'false');
+        formData.append('detectOrientation', 'true'); // Mobil için orientation algılama açık
         formData.append('scale', 'true');
         formData.append('OCREngine', '2'); // Engine 2 daha hızlı
+        
+        console.log('OCR API isteği gönderiliyor...');
         
         const response = await fetch(OCR_API_URL, {
             method: 'POST',
             body: formData
         });
         
+        console.log('API yanıt durumu:', response.status);
+        
         if (!response.ok) {
-            const errorData = await response.json().catch(() => ({}));
+            const errorText = await response.text();
+            console.error('API hata yanıtı:', errorText);
+            
+            let errorData;
+            try {
+                errorData = JSON.parse(errorText);
+            } catch {
+                errorData = { ErrorMessage: [errorText] };
+            }
+            
             throw new Error(errorData.ErrorMessage?.[0] || `API hatası: ${response.status}`);
         }
         
         const data = await response.json();
+        console.log('OCR API yanıtı:', data);
         
         if (data.OCRExitCode === 1 && data.ParsedResults && data.ParsedResults.length > 0) {
             // Tüm metinleri birleştir
@@ -126,7 +151,12 @@ async function recognizeTextWithOCR(imageData) {
                 .map(result => result.ParsedText || '')
                 .join('\n')
                 .trim();
+            
+            console.log('Algılanan metin uzunluğu:', fullText.length);
             return fullText;
+        } else if (data.OCRExitCode === 0) {
+            console.warn('OCR başarısız:', data.ErrorMessage || 'Bilinmeyen hata');
+            return '';
         }
         
         return '';
@@ -238,13 +268,29 @@ function handleFile(file) {
         return;
     }
 
+    console.log('Dosya seçildi:', file.name, file.type, (file.size / 1024).toFixed(2), 'KB');
+
     const reader = new FileReader();
+    reader.onerror = () => {
+        alert('Dosya okunamadı. Lütfen başka bir dosya deneyin.');
+    };
+    
     reader.onload = (e) => {
         previewImage.src = e.target.result;
         uploadArea.style.display = 'none';
         previewSection.style.display = 'block';
         photoOverlayNumbers.innerHTML = '';
+        
+        // Görüntü yüklendiğinde kontrol et
+        previewImage.onload = () => {
+            console.log('Görüntü yüklendi:', previewImage.width, 'x', previewImage.height);
+        };
+        
+        previewImage.onerror = () => {
+            alert('Görüntü yüklenemedi. Lütfen başka bir dosya deneyin.');
+        };
     };
+    
     reader.readAsDataURL(file);
 }
 
@@ -367,32 +413,91 @@ window.addEventListener('load', () => {
     }
 });
 
-// Görüntüyü optimize et (OCR.space için)
-function optimizeImage(imageSrc, maxWidth = 1600) {
+// EXIF orientation'ı düzelt (mobil cihazlar için)
+function fixImageOrientation(img) {
     return new Promise((resolve) => {
+        // EXIF.js kütüphanesi olmadan basit çözüm
+        // Mobil cihazlarda genellikle görüntü doğru yüklenir
+        // Ancak canvas'a çizerken orientation sorunları olabilir
+        
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+        
+        // Mobil cihazlarda genişlik/yükseklik oranını kontrol et
+        // Eğer görüntü dikey çekilmişse (height > width), orientation sorunu olabilir
+        const isPortrait = height > width;
+        
+        // Canvas boyutlarını ayarla
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        
+        // Görüntüyü çiz
+        ctx.drawImage(img, 0, 0, width, height);
+        
+        resolve({ canvas, width, height, isPortrait });
+    });
+}
+
+// Görüntüyü optimize et (OCR.space için - mobil uyumlu)
+function optimizeImage(imageSrc, maxWidth = 1600) {
+    return new Promise((resolve, reject) => {
         const img = new Image();
-        img.onload = () => {
-            const canvas = document.createElement('canvas');
-            let width = img.width;
-            let height = img.height;
-
-            // OCR.space için daha büyük görüntü kullanabiliriz (daha iyi sonuç)
-            if (width > maxWidth) {
-                height = (height * maxWidth) / width;
-                width = maxWidth;
-            }
-
-            canvas.width = width;
-            canvas.height = height;
-            const ctx = canvas.getContext('2d');
-
-            // Görüntüyü çiz
-            ctx.drawImage(img, 0, 0, width, height);
-            
-            // JPEG formatında, yüksek kalite (OCR.space için)
-            resolve(canvas.toDataURL('image/jpeg', 0.9));
+        
+        img.onerror = () => {
+            reject(new Error('Görüntü yüklenemedi'));
         };
-        img.src = imageSrc;
+        
+        img.onload = async () => {
+            try {
+                // EXIF orientation'ı düzelt
+                const { canvas, width, height } = await fixImageOrientation(img);
+                
+                let finalWidth = width;
+                let finalHeight = height;
+
+                // OCR.space için optimize boyut
+                if (finalWidth > maxWidth) {
+                    finalHeight = (finalHeight * maxWidth) / finalWidth;
+                    finalWidth = maxWidth;
+                }
+                
+                // Yeni canvas oluştur ve yeniden boyutlandır
+                const outputCanvas = document.createElement('canvas');
+                outputCanvas.width = finalWidth;
+                outputCanvas.height = finalHeight;
+                const outputCtx = outputCanvas.getContext('2d');
+                
+                // Yüksek kaliteli yeniden boyutlandırma
+                outputCtx.imageSmoothingEnabled = true;
+                outputCtx.imageSmoothingQuality = 'high';
+                outputCtx.drawImage(canvas, 0, 0, finalWidth, finalHeight);
+                
+                // JPEG formatında, yüksek kalite (OCR.space için)
+                const dataUrl = outputCanvas.toDataURL('image/jpeg', 0.85);
+                
+                // Base64 boyutunu kontrol et (OCR.space limiti ~1MB)
+                const base64Size = (dataUrl.length * 3) / 4;
+                if (base64Size > 1000000) {
+                    // Çok büyükse kaliteyi düşür
+                    const smallerDataUrl = outputCanvas.toDataURL('image/jpeg', 0.7);
+                    resolve(smallerDataUrl);
+                } else {
+                    resolve(dataUrl);
+                }
+            } catch (error) {
+                reject(error);
+            }
+        };
+        
+        // Data URL veya blob URL için crossOrigin gerekmez
+        if (imageSrc.startsWith('data:') || imageSrc.startsWith('blob:')) {
+            img.src = imageSrc;
+        } else {
+            img.crossOrigin = 'anonymous';
+            img.src = imageSrc;
+        }
     });
 }
 
@@ -479,8 +584,23 @@ analyzeBtn.addEventListener('click', async () => {
         
     } catch (error) {
         console.error('OCR hatası:', error);
+        console.error('Hata detayları:', {
+            message: error.message,
+            stack: error.stack,
+            name: error.name
+        });
+        
         loadingText.textContent = `HATA: ${error.message || 'Analiz başarısız'}`;
-        alert(`Fotoğraf analiz edilirken bir hata oluştu: ${error.message || 'Bilinmeyen hata'}. Konsolu kontrol edin.`);
+        
+        // Mobil cihazlar için daha açıklayıcı hata mesajı
+        let errorMessage = error.message || 'Bilinmeyen hata';
+        if (errorMessage.includes('API hatası')) {
+            errorMessage = 'OCR servisi şu anda kullanılamıyor. Lütfen daha sonra tekrar deneyin.';
+        } else if (errorMessage.includes('çok büyük')) {
+            errorMessage = 'Görüntü çok büyük. Lütfen daha küçük bir fotoğraf deneyin.';
+        }
+        
+        alert(`Fotoğraf analiz edilirken bir hata oluştu:\n\n${errorMessage}\n\nKonsolu kontrol edin (F12).`);
         loadingSection.style.display = 'none';
     }
 });
