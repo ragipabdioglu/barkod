@@ -38,18 +38,19 @@ Kargo etiketlerindeki telefon numaralarını fotoğraf yükleyerek veya kamerada
 - **HTML5** - Yapı
 - **CSS3** - Modern ve responsive tasarım
 - **JavaScript** - İşlevsellik
-- **Tesseract.js** - OCR (Optical Character Recognition) kütüphanesi
+- **OCR.space API** - Hızlı ve ücretsiz OCR servisi
 
 ## Notlar
 
 - **HTTPS gereklidir:** Kameraya erişim için HTTPS bağlantısı gereklidir (localhost'ta çalışır). Fotoğraf modu için HTTPS gerekmez.
-- İlk kullanımda Tesseract.js model dosyaları indirilecektir (birkaç MB)
-- İnternet bağlantısı gereklidir (Tesseract.js CDN üzerinden yüklenir)
+- **OCR.space API:** Ücretsiz public API key kullanılıyor (günlük sınırlı istek). Daha fazla istek için ücretsiz API key alabilirsiniz: https://ocr.space/ocrapi/freekey
+- İnternet bağlantısı gereklidir (OCR.space API kullanılıyor)
 - Etiket ne kadar net görünürse, algılama o kadar doğru olur
 - Telefon numaraları Türkiye formatlarına göre algılanır (0XXX XXX XX XX)
-- Otomatik mod (kamera) her 2 saniyede bir kontrol yapar (performans için)
+- Otomatik mod (kamera) her 1 saniyede bir kontrol yapar (OCR.space hızlı olduğu için)
 - Mobil cihazlarda arka kamera kullanılır
 - Fotoğraf modu: PNG, JPG, JPEG formatları desteklenir
+- **Hız:** OCR.space API, Tesseract.js'den çok daha hızlıdır (genellikle 1-2 saniye)
 
 ## Tarayıcı Desteği
 

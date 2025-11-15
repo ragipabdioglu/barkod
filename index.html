@@ -76,18 +76,6 @@
         </footer>
     </div>
 
-    <script src="https://unpkg.com/tesseract.js@5.0.4/dist/tesseract.min.js"></script>
-    <script>
-        // Tesseract.js yüklendiğini kontrol et
-        window.addEventListener('load', function() {
-            if (typeof Tesseract === 'undefined') {
-                console.error('Tesseract.js yüklenemedi!');
-                document.body.innerHTML = '<div style="padding: 40px; text-align: center;"><h1>HATA</h1><p>Tesseract.js kütüphanesi yüklenemedi. Lütfen internet bağlantınızı kontrol edin ve sayfayı yenileyin.</p></div>';
-            } else {
-                console.log('Tesseract.js başarıyla yüklendi, versiyon:', Tesseract.version || 'bilinmiyor');
-            }
-        });
-    </script>
     <script src="script.js"></script>
 </body>
 </html>

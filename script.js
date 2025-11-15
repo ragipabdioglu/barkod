@@ -31,8 +31,11 @@ let autoInterval = null;
 let isProcessing = false;
 let detectedNumbers = new Map();
 let currentMode = 'camera';
-let cameraWorker = null; // Worker'ı önceden oluşturup tekrar kullan
-let workerReady = false;
+
+// OCR.space API - Ücretsiz API key (günlük 25,000 istek)
+// Kendi API key'inizi almak için: https://ocr.space/ocrapi/freekey
+const OCR_API_KEY = 'helloworld'; // Ücretsiz public key (sınırlı)
+const OCR_API_URL = 'https://api.ocr.space/parse/image';
 
 // Mod değiştirme
 cameraModeBtn.addEventListener('click', () => switchMode('camera'));
@@ -81,13 +84,6 @@ startCameraBtn.addEventListener('click', async () => {
         startCameraBtn.style.display = 'none';
         stopCameraBtn.style.display = 'inline-block';
         toggleAutoBtn.style.display = 'inline-block';
-        
-        // Worker'ı önceden hazırla
-        if (!workerReady && typeof Tesseract !== 'undefined') {
-            statusInfo.textContent = 'OCR hazırlanıyor...';
-            await initializeCameraWorker();
-        }
-        
         statusInfo.textContent = 'Kamera hazır! Etiketi kameraya gösterin.';
         
     } catch (error) {
@@ -97,26 +93,46 @@ startCameraBtn.addEventListener('click', async () => {
     }
 });
 
-// Camera worker'ı önceden oluştur
-async function initializeCameraWorker() {
-    if (cameraWorker || workerReady) return;
-    
+// OCR.space API ile metin tanıma
+async function recognizeTextWithOCR(imageData) {
     try {
-        cameraWorker = await Tesseract.createWorker('tur+eng', 1, {
-            logger: () => {} // Gereksiz logları kapat
+        // Base64'ten sadece data kısmını al
+        const base64Data = imageData.includes(',') ? imageData.split(',')[1] : imageData;
+        
+        const formData = new FormData();
+        formData.append('base64Image', base64Data);
+        formData.append('language', 'tur'); // Türkçe
+        formData.append('apikey', OCR_API_KEY);
+        formData.append('isOverlayRequired', 'false');
+        formData.append('detectOrientation', 'false');
+        formData.append('scale', 'true');
+        formData.append('OCREngine', '2'); // Engine 2 daha hızlı
+        
+        const response = await fetch(OCR_API_URL, {
+            method: 'POST',
+            body: formData
         });
         
-        // OCR ayarlarını optimize et - sadece rakamlar ve telefon karakterleri
-        await cameraWorker.setParameters({
-            tessedit_pageseg_mode: '6', // Tek tek blok modu (daha hızlı)
-            tessedit_char_whitelist: '0123456789+()- Tel:',
-        });
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.ErrorMessage?.[0] || `API hatası: ${response.status}`);
+        }
         
-        workerReady = true;
-        console.log('Camera worker hazır!');
+        const data = await response.json();
+        
+        if (data.OCRExitCode === 1 && data.ParsedResults && data.ParsedResults.length > 0) {
+            // Tüm metinleri birleştir
+            const fullText = data.ParsedResults
+                .map(result => result.ParsedText || '')
+                .join('\n')
+                .trim();
+            return fullText;
+        }
+        
+        return '';
     } catch (error) {
-        console.error('Worker oluşturma hatası:', error);
-        workerReady = false;
+        console.error('OCR API hatası:', error);
+        throw error;
     }
 }
 
@@ -163,14 +179,6 @@ function stopCamera() {
     overlayNumbers.innerHTML = '';
     detectedNumbers.clear();
     stopAutoDetection();
-    
-    // Worker'ı temizleme (isteğe bağlı - performans için tutabiliriz)
-    // if (cameraWorker) {
-    //     cameraWorker.terminate();
-    //     cameraWorker = null;
-    //     workerReady = false;
-    // }
-    
     statusInfo.textContent = 'Kamera durduruldu.';
 }
 
@@ -178,16 +186,11 @@ function stopCamera() {
 function startAutoDetection() {
     if (autoInterval) return;
     
-    // Worker hazır değilse hazırla
-    if (!workerReady && typeof Tesseract !== 'undefined') {
-        initializeCameraWorker();
-    }
-    
     autoInterval = setInterval(async () => {
         if (!isProcessing && videoElement.readyState === videoElement.HAVE_ENOUGH_DATA) {
             await captureAndAnalyze();
         }
-    }, 1500); // 2 saniyeden 1.5 saniyeye düşürüldü
+    }, 1000); // OCR.space hızlı olduğu için 1 saniye yeterli
 }
 
 // Otomatik algılamayı durdur
@@ -356,19 +359,16 @@ function formatPhoneNumber(phone) {
     return phone;
 }
 
-// Tesseract.js yüklendiğini kontrol et
+// OCR.space API kontrolü
 window.addEventListener('load', () => {
-    if (typeof Tesseract === 'undefined') {
-        console.error('Tesseract.js yüklenemedi!');
-        statusInfo.textContent = 'HATA: Tesseract.js yüklenemedi. Lütfen sayfayı yenileyin.';
-        alert('OCR kütüphanesi yüklenemedi. Lütfen internet bağlantınızı kontrol edin ve sayfayı yenileyin.');
-    } else {
-        console.log('Tesseract.js başarıyla yüklendi');
+    console.log('OCR.space API hazır');
+    if (OCR_API_KEY === 'helloworld') {
+        console.warn('Ücretsiz public API key kullanılıyor. Daha fazla istek için: https://ocr.space/ocrapi/freekey');
     }
 });
 
-// Görüntüyü optimize et (hızlandırma için)
-function optimizeImage(imageSrc, maxWidth = 800) {
+// Görüntüyü optimize et (OCR.space için)
+function optimizeImage(imageSrc, maxWidth = 1600) {
     return new Promise((resolve) => {
         const img = new Image();
         img.onload = () => {
@@ -376,7 +376,7 @@ function optimizeImage(imageSrc, maxWidth = 800) {
             let width = img.width;
             let height = img.height;
 
-            // Görüntüyü yeniden boyutlandır (daha küçük = daha hızlı)
+            // OCR.space için daha büyük görüntü kullanabiliriz (daha iyi sonuç)
             if (width > maxWidth) {
                 height = (height * maxWidth) / width;
                 width = maxWidth;
@@ -389,64 +389,35 @@ function optimizeImage(imageSrc, maxWidth = 800) {
             // Görüntüyü çiz
             ctx.drawImage(img, 0, 0, width, height);
             
-            // Gri tonlama ve kontrast artırma (OCR için daha iyi)
-            const imageData = ctx.getImageData(0, 0, width, height);
-            const data = imageData.data;
-            
-            // Basit kontrast artırma
-            for (let i = 0; i < data.length; i += 4) {
-                // Gri tonlama
-                const gray = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
-                // Kontrast artırma
-                const contrast = (gray - 128) * 1.3 + 128;
-                const final = Math.max(0, Math.min(255, contrast));
-                data[i] = final;
-                data[i + 1] = final;
-                data[i + 2] = final;
-            }
-            
-            ctx.putImageData(imageData, 0, 0);
-            resolve(canvas.toDataURL('image/jpeg', 0.6)); // Düşük kalite = daha hızlı
+            // JPEG formatında, yüksek kalite (OCR.space için)
+            resolve(canvas.toDataURL('image/jpeg', 0.9));
         };
         img.src = imageSrc;
     });
 }
 
-// Görüntüyü yakala ve analiz et (kamera için - optimize edilmiş)
+// Görüntüyü yakala ve analiz et (kamera için - OCR.space API)
 async function captureAndAnalyze() {
     if (isProcessing || !videoElement.videoWidth) return;
     
     isProcessing = true;
     
-    // Tesseract kontrolü
-    if (typeof Tesseract === 'undefined') {
-        statusInfo.textContent = 'HATA: OCR kütüphanesi yüklenmedi!';
-        isProcessing = false;
-        return;
-    }
-    
     try {
-        // Görüntüyü yakala ve optimize et
+        statusInfo.textContent = 'Görüntü yakalanıyor...';
+        
+        // Görüntüyü yakala
         canvasElement.width = videoElement.videoWidth;
         canvasElement.height = videoElement.videoHeight;
         const ctx = canvasElement.getContext('2d');
         ctx.drawImage(videoElement, 0, 0);
         
-        const originalImageData = canvasElement.toDataURL('image/jpeg', 0.9);
-        const optimizedImageData = await optimizeImage(originalImageData, 800);
+        const imageData = canvasElement.toDataURL('image/jpeg', 0.9);
+        const optimizedImage = await optimizeImage(imageData, 1600);
         
-        // Worker hazır değilse hazırla
-        if (!workerReady) {
-            statusInfo.textContent = 'OCR hazırlanıyor...';
-            await initializeCameraWorker();
-        }
+        statusInfo.textContent = 'OCR işlemi başlatıldı...';
         
-        if (!cameraWorker || !workerReady) {
-            throw new Error('OCR worker hazır değil');
-        }
-        
-        // Önceden oluşturulmuş worker'ı kullan
-        const { data: { text } } = await cameraWorker.recognize(optimizedImageData);
+        // OCR.space API ile OCR
+        const text = await recognizeTextWithOCR(optimizedImage);
 
         console.log('OCR Sonucu:', text);
         statusInfo.textContent = 'Metin algılandı, telefon numaraları aranıyor...';
@@ -467,12 +438,7 @@ async function captureAndAnalyze() {
         console.error('OCR hatası:', error);
         if (!isAutoMode) {
             statusInfo.textContent = `HATA: ${error.message || 'Analiz başarısız oldu'}`;
-        }
-        // Worker hatası varsa yeniden oluştur
-        if (error.message.includes('worker') || error.message.includes('Worker')) {
-            cameraWorker = null;
-            workerReady = false;
-            await initializeCameraWorker();
+            alert(`Analiz hatası: ${error.message || 'Bilinmeyen hata'}. Konsolu kontrol edin.`);
         }
     } finally {
         isProcessing = false;
@@ -486,37 +452,21 @@ analyzeBtn.addEventListener('click', async () => {
         return;
     }
 
-    // Tesseract kontrolü
-    if (typeof Tesseract === 'undefined') {
-        alert('OCR kütüphanesi yüklenmedi! Lütfen sayfayı yenileyin.');
-        return;
-    }
-
     loadingSection.style.display = 'block';
     previewSection.style.display = 'block';
     loadingText.textContent = 'Fotoğraf analiz ediliyor...';
 
     try {
         console.log('Fotoğraf analizi başlatılıyor...');
-        loadingText.textContent = 'OCR worker oluşturuluyor...';
+        loadingText.textContent = 'Görüntü optimize ediliyor...';
         
-        let worker;
-        try {
-            worker = await Tesseract.createWorker('tur+eng', 1, {
-                logger: m => {
-                    console.log('OCR Progress:', m);
-                    if (m.status === 'recognizing text') {
-                        loadingText.textContent = `Telefon numarası algılanıyor... ${Math.round(m.progress * 100)}%`;
-                    }
-                }
-            });
-        } catch (workerError) {
-            throw new Error(`Worker oluşturulamadı: ${workerError.message}`);
-        }
+        // Görüntüyü optimize et
+        const optimizedImage = await optimizeImage(previewImage.src, 1600);
         
         loadingText.textContent = 'OCR işlemi başlatıldı...';
-        const { data: { text } } = await worker.recognize(previewImage.src);
-        await worker.terminate();
+        
+        // OCR.space API ile OCR
+        const text = await recognizeTextWithOCR(optimizedImage);
 
         console.log('OCR Sonucu:', text);
         loadingText.textContent = 'Metin algılandı, telefon numaraları aranıyor...';
@@ -535,12 +485,7 @@ analyzeBtn.addEventListener('click', async () => {
     }
 });
 
-// Sayfa kapatılırken kamerayı durdur ve worker'ı temizle
-window.addEventListener('beforeunload', async () => {
+// Sayfa kapatılırken kamerayı durdur
+window.addEventListener('beforeunload', () => {
     stopCamera();
-    if (cameraWorker) {
-        await cameraWorker.terminate();
-        cameraWorker = null;
-        workerReady = false;
-    }
 });
