@@ -38,8 +38,21 @@ const OCR_API_KEY = 'helloworld'; // Ücretsiz public key (sınırlı)
 const OCR_API_URL = 'https://api.ocr.space/parse/image';
 
 // Mod değiştirme
-cameraModeBtn.addEventListener('click', () => switchMode('camera'));
-photoModeBtn.addEventListener('click', () => switchMode('photo'));
+function handleModeSwitch(mode) {
+    switchMode(mode);
+}
+
+cameraModeBtn.addEventListener('click', () => handleModeSwitch('camera'));
+cameraModeBtn.addEventListener('touchend', (e) => {
+    e.preventDefault();
+    handleModeSwitch('camera');
+});
+
+photoModeBtn.addEventListener('click', () => handleModeSwitch('photo'));
+photoModeBtn.addEventListener('touchend', (e) => {
+    e.preventDefault();
+    handleModeSwitch('photo');
+});
 
 function switchMode(mode) {
     currentMode = mode;
@@ -65,21 +78,35 @@ function switchMode(mode) {
     }
 }
 
+// Mobil cihaz kontrolü
+const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+
 // Kamerayı başlat
-startCameraBtn.addEventListener('click', async () => {
+async function startCamera() {
     try {
         statusInfo.textContent = 'Kamera erişimi isteniyor...';
         
-        stream = await navigator.mediaDevices.getUserMedia({
+        // Mobil için optimize edilmiş kamera ayarları
+        const constraints = {
             video: {
-                facingMode: 'environment',
-                width: { ideal: 1280 },
-                height: { ideal: 720 }
+                facingMode: 'environment', // Arka kamera
+                width: isMobile ? { ideal: 1280, max: 1920 } : { ideal: 1280 },
+                height: isMobile ? { ideal: 720, max: 1080 } : { ideal: 720 },
+                aspectRatio: { ideal: 16/9 }
             }
-        });
+        };
+        
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
 
         videoElement.srcObject = stream;
-        videoElement.play();
+        
+        // Mobilde play() promise döndürebilir
+        try {
+            await videoElement.play();
+        } catch (playError) {
+            console.warn('Video play hatası:', playError);
+            // Mobilde bazen play() başarısız olabilir ama video çalışır
+        }
 
         startCameraBtn.style.display = 'none';
         stopCameraBtn.style.display = 'inline-block';
@@ -88,74 +115,145 @@ startCameraBtn.addEventListener('click', async () => {
         
     } catch (error) {
         console.error('Kamera hatası:', error);
-        statusInfo.textContent = 'Kamera erişimi reddedildi. Lütfen izin verin.';
-        alert('Kamera erişimi gerekli. Lütfen tarayıcı ayarlarından kamera iznini verin.');
+        let errorMsg = 'Kamera erişimi reddedildi. Lütfen izin verin.';
+        
+        if (error.name === 'NotAllowedError') {
+            errorMsg = 'Kamera izni reddedildi. Lütfen tarayıcı ayarlarından izin verin.';
+        } else if (error.name === 'NotFoundError') {
+            errorMsg = 'Kamera bulunamadı. Lütfen cihazınızda kamera olduğundan emin olun.';
+        } else if (error.name === 'NotReadableError') {
+            errorMsg = 'Kamera kullanılamıyor. Başka bir uygulama kamera kullanıyor olabilir.';
+        }
+        
+        statusInfo.textContent = errorMsg;
+        alert(errorMsg);
     }
+}
+
+startCameraBtn.addEventListener('click', startCamera);
+// Touch event desteği
+startCameraBtn.addEventListener('touchend', (e) => {
+    e.preventDefault();
+    startCamera();
 });
 
 // OCR.space API ile metin tanıma
 async function recognizeTextWithOCR(imageData) {
     try {
-        // Base64'ten sadece data kısmını al
-        let base64Data = imageData.includes(',') ? imageData.split(',')[1] : imageData;
+        // OCR.space API base64 görüntüyü "data:image/jpeg;base64,XXXXX" formatında bekliyor
+        let base64Image = imageData;
         
-        // Base64'ü temizle (boşluk, satır sonu vs. kaldır)
-        base64Data = base64Data.replace(/\s/g, '');
+        // Eğer zaten "data:image" ile başlıyorsa olduğu gibi kullan
+        if (!imageData.startsWith('data:image')) {
+            // Prefix yoksa, sadece base64 string ise prefix ekle
+            base64Image = `data:image/jpeg;base64,${imageData}`;
+        }
         
-        // Base64 boyutunu kontrol et
-        const base64Size = (base64Data.length * 3) / 4;
-        console.log('Base64 boyutu:', (base64Size / 1024).toFixed(2), 'KB');
+        // Format kontrolü - "data:image" ile başlamalı
+        if (!base64Image.startsWith('data:image')) {
+            throw new Error('Geçersiz görüntü formatı: data:image prefix gerekli');
+        }
         
-        if (base64Size > 1000000) {
-            throw new Error('Görüntü çok büyük (max 1MB). Lütfen daha küçük bir görüntü deneyin.');
+        // Base64 kısmının uzunluğunu kontrol et
+        const base64Part = base64Image.split(',')[1];
+        if (!base64Part || base64Part.length < 100) {
+            throw new Error('Görüntü çok küçük veya geçersiz base64 formatı');
         }
         
         const formData = new FormData();
-        formData.append('base64Image', base64Data);
+        // OCR.space API - base64Image için "data:image/jpeg;base64,XXXXX" formatı gerekli
+        formData.append('base64Image', base64Image);
         formData.append('language', 'tur'); // Türkçe
         formData.append('apikey', OCR_API_KEY);
         formData.append('isOverlayRequired', 'false');
-        formData.append('detectOrientation', 'true'); // Mobil için orientation algılama açık
+        formData.append('detectOrientation', 'false');
         formData.append('scale', 'true');
         formData.append('OCREngine', '2'); // Engine 2 daha hızlı
+        // Görüntü boyutu limiti için
+        formData.append('filetype', 'JPG');
         
-        console.log('OCR API isteği gönderiliyor...');
+        // Debug: Base64 boyutunu kontrol et
+        console.log('Base64 görüntü formatı:', base64Image.substring(0, 30) + '...');
+        console.log('Base64 boyutu:', base64Part.length, 'karakter');
+        if (base64Part.length > 1000000) {
+            console.warn('Büyük görüntü tespit edildi, API limiti aşılabilir');
+        }
         
         const response = await fetch(OCR_API_URL, {
             method: 'POST',
             body: formData
         });
         
-        console.log('API yanıt durumu:', response.status);
-        
         if (!response.ok) {
-            const errorText = await response.text();
-            console.error('API hata yanıtı:', errorText);
-            
-            let errorData;
+            let errorMessage = `API hatası: ${response.status}`;
             try {
-                errorData = JSON.parse(errorText);
-            } catch {
-                errorData = { ErrorMessage: [errorText] };
+                const errorData = await response.json();
+                if (errorData.ErrorMessage && errorData.ErrorMessage.length > 0) {
+                    errorMessage = errorData.ErrorMessage[0];
+                } else if (errorData.error) {
+                    errorMessage = errorData.error;
+                }
+            } catch (e) {
+                // JSON parse hatası - response text'i al
+                const text = await response.text().catch(() => '');
+                if (text) errorMessage = text;
             }
             
-            throw new Error(errorData.ErrorMessage?.[0] || `API hatası: ${response.status}`);
+            // Rate limit kontrolü
+            if (response.status === 429) {
+                errorMessage = 'Günlük istek limiti aşıldı. Lütfen daha sonra tekrar deneyin veya kendi API key\'inizi kullanın.';
+            }
+            
+            throw new Error(errorMessage);
         }
         
         const data = await response.json();
-        console.log('OCR API yanıtı:', data);
         
-        if (data.OCRExitCode === 1 && data.ParsedResults && data.ParsedResults.length > 0) {
+        // Debug: API yanıtını logla
+        console.log('OCR API Yanıtı:', data);
+        
+        // OCRExitCode kontrolü - eğer yoksa veya undefined ise kontrol et
+        if (!data.hasOwnProperty('OCRExitCode')) {
+            console.error('OCRExitCode bulunamadı. API yanıtı:', data);
+            // Eğer hata mesajı varsa göster
+            if (data.ErrorMessage && data.ErrorMessage.length > 0) {
+                throw new Error(data.ErrorMessage[0]);
+            }
+            throw new Error('API yanıtı beklenen formatta değil');
+        }
+        
+        // OCR hata kodları kontrolü
+        if (data.OCRExitCode !== 1) {
+            const errorMessages = {
+                2: 'Görüntü işlenemedi',
+                3: 'OCR işlemi başarısız',
+                4: 'Görüntü formatı desteklenmiyor',
+                99: 'Bilinmeyen hata'
+            };
+            
+            // Eğer ErrorMessage varsa onu kullan
+            if (data.ErrorMessage && data.ErrorMessage.length > 0) {
+                throw new Error(data.ErrorMessage[0]);
+            }
+            
+            const exitCode = data.OCRExitCode;
+            const errorMsg = errorMessages[exitCode] || `OCR hatası (kod: ${exitCode})`;
+            console.error('OCR Exit Code:', exitCode, 'Full response:', data);
+            throw new Error(errorMsg);
+        }
+        
+        if (data.ParsedResults && data.ParsedResults.length > 0) {
             // Tüm metinleri birleştir
             const fullText = data.ParsedResults
                 .map(result => result.ParsedText || '')
                 .join('\n')
                 .trim();
-            
-            console.log('Algılanan metin uzunluğu:', fullText.length);
             return fullText;
-        } else if (data.OCRExitCode === 0) {
-            console.warn('OCR başarısız:', data.ErrorMessage || 'Bilinmeyen hata');
+        }
+        
+        // OCRExitCode 1 ama sonuç yok
+        if (data.OCRExitCode === 1) {
+            console.warn('OCR başarılı ama metin bulunamadı');
             return '';
         }
         
@@ -167,12 +265,14 @@ async function recognizeTextWithOCR(imageData) {
 }
 
 // Kamerayı durdur
-stopCameraBtn.addEventListener('click', () => {
+stopCameraBtn.addEventListener('click', stopCamera);
+stopCameraBtn.addEventListener('touchend', (e) => {
+    e.preventDefault();
     stopCamera();
 });
 
 // Otomatik algılama toggle
-toggleAutoBtn.addEventListener('click', () => {
+function toggleAutoDetection() {
     isAutoMode = !isAutoMode;
     
     if (isAutoMode) {
@@ -186,14 +286,24 @@ toggleAutoBtn.addEventListener('click', () => {
         stopAutoDetection();
         statusInfo.textContent = 'Otomatik algılama kapalı. Manuel algılama için ekrana dokunun.';
     }
+}
+
+toggleAutoBtn.addEventListener('click', toggleAutoDetection);
+toggleAutoBtn.addEventListener('touchend', (e) => {
+    e.preventDefault();
+    toggleAutoDetection();
 });
 
-// Video üzerine tıklama ile manuel algılama
-videoElement.addEventListener('click', async (e) => {
+// Video üzerine tıklama/dokunma ile manuel algılama
+function handleVideoInteraction(e) {
+    e.preventDefault();
     if (!isAutoMode && !isProcessing) {
-        await captureAndAnalyze();
+        captureAndAnalyze();
     }
-});
+}
+
+videoElement.addEventListener('click', handleVideoInteraction);
+videoElement.addEventListener('touchend', handleVideoInteraction);
 
 // Kamerayı durdurma fonksiyonu
 function stopCamera() {
@@ -233,8 +343,14 @@ function stopAutoDetection() {
 
 
 // Fotoğraf yükleme işlemleri
-uploadArea.addEventListener('click', () => {
+function triggerFileInput() {
     fileInput.click();
+}
+
+uploadArea.addEventListener('click', triggerFileInput);
+uploadArea.addEventListener('touchend', (e) => {
+    e.preventDefault();
+    triggerFileInput();
 });
 
 fileInput.addEventListener('change', (e) => {
@@ -268,41 +384,31 @@ function handleFile(file) {
         return;
     }
 
-    console.log('Dosya seçildi:', file.name, file.type, (file.size / 1024).toFixed(2), 'KB');
-
     const reader = new FileReader();
-    reader.onerror = () => {
-        alert('Dosya okunamadı. Lütfen başka bir dosya deneyin.');
-    };
-    
     reader.onload = (e) => {
         previewImage.src = e.target.result;
         uploadArea.style.display = 'none';
         previewSection.style.display = 'block';
         photoOverlayNumbers.innerHTML = '';
-        
-        // Görüntü yüklendiğinde kontrol et
-        previewImage.onload = () => {
-            console.log('Görüntü yüklendi:', previewImage.width, 'x', previewImage.height);
-        };
-        
-        previewImage.onerror = () => {
-            alert('Görüntü yüklenemedi. Lütfen başka bir dosya deneyin.');
-        };
     };
-    
     reader.readAsDataURL(file);
 }
 
 
 // Reset butonu
-resetBtn.addEventListener('click', () => {
+function resetPhoto() {
     fileInput.value = '';
     previewImage.src = '';
     uploadArea.style.display = 'block';
     previewSection.style.display = 'none';
     photoOverlayNumbers.innerHTML = '';
     loadingSection.style.display = 'none';
+}
+
+resetBtn.addEventListener('click', resetPhoto);
+resetBtn.addEventListener('touchend', (e) => {
+    e.preventDefault();
+    resetPhoto();
 });
 
 // Telefon numarası çıkarma
@@ -373,10 +479,14 @@ function displayNumbersOnOverlay(phoneNumbers, overlayContainer) {
         phoneElement.style.top = `${20 + index * 60}px`;
         phoneElement.style.left = '20px';
         
-        phoneElement.addEventListener('click', (e) => {
+        function callPhone(e) {
+            e.preventDefault();
             e.stopPropagation();
             window.location.href = `tel:${phone}`;
-        });
+        }
+        
+        phoneElement.addEventListener('click', callPhone);
+        phoneElement.addEventListener('touchend', callPhone);
         
         overlayContainer.appendChild(phoneElement);
         detectedNumbers.set(phone, phoneElement);
@@ -413,91 +523,46 @@ window.addEventListener('load', () => {
     }
 });
 
-// EXIF orientation'ı düzelt (mobil cihazlar için)
-function fixImageOrientation(img) {
-    return new Promise((resolve) => {
-        // EXIF.js kütüphanesi olmadan basit çözüm
-        // Mobil cihazlarda genellikle görüntü doğru yüklenir
-        // Ancak canvas'a çizerken orientation sorunları olabilir
-        
-        const canvas = document.createElement('canvas');
-        let width = img.width;
-        let height = img.height;
-        
-        // Mobil cihazlarda genişlik/yükseklik oranını kontrol et
-        // Eğer görüntü dikey çekilmişse (height > width), orientation sorunu olabilir
-        const isPortrait = height > width;
-        
-        // Canvas boyutlarını ayarla
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        
-        // Görüntüyü çiz
-        ctx.drawImage(img, 0, 0, width, height);
-        
-        resolve({ canvas, width, height, isPortrait });
-    });
-}
-
-// Görüntüyü optimize et (OCR.space için - mobil uyumlu)
-function optimizeImage(imageSrc, maxWidth = 1600) {
+// Görüntüyü optimize et (OCR.space için - mobilde daha küçük)
+function optimizeImage(imageSrc, maxWidth = 1024) {
     return new Promise((resolve, reject) => {
         const img = new Image();
         
-        img.onerror = () => {
-            reject(new Error('Görüntü yüklenemedi'));
-        };
+        img.onerror = () => reject(new Error('Görüntü yüklenemedi'));
         
-        img.onload = async () => {
+        img.onload = () => {
             try {
-                // EXIF orientation'ı düzelt
-                const { canvas, width, height } = await fixImageOrientation(img);
-                
-                let finalWidth = width;
-                let finalHeight = height;
+                const canvas = document.createElement('canvas');
+                let width = img.width;
+                let height = img.height;
 
-                // OCR.space için optimize boyut
-                if (finalWidth > maxWidth) {
-                    finalHeight = (finalHeight * maxWidth) / finalWidth;
-                    finalWidth = maxWidth;
+                // Mobilde daha küçük görüntü kullan (performans ve API limiti için)
+                // OCR.space API için maksimum 1024px önerilir (daha hızlı ve güvenilir)
+                const apiMaxWidth = 1024; // API için optimal boyut
+                const mobileMaxWidth = isMobile ? 1024 : apiMaxWidth;
+                const targetWidth = width > mobileMaxWidth ? mobileMaxWidth : width;
+                
+                if (width > targetWidth) {
+                    height = (height * targetWidth) / width;
+                    width = targetWidth;
                 }
+
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+
+                // Görüntüyü çiz
+                ctx.drawImage(img, 0, 0, width, height);
                 
-                // Yeni canvas oluştur ve yeniden boyutlandır
-                const outputCanvas = document.createElement('canvas');
-                outputCanvas.width = finalWidth;
-                outputCanvas.height = finalHeight;
-                const outputCtx = outputCanvas.getContext('2d');
-                
-                // Yüksek kaliteli yeniden boyutlandırma
-                outputCtx.imageSmoothingEnabled = true;
-                outputCtx.imageSmoothingQuality = 'high';
-                outputCtx.drawImage(canvas, 0, 0, finalWidth, finalHeight);
-                
-                // JPEG formatında, yüksek kalite (OCR.space için)
-                const dataUrl = outputCanvas.toDataURL('image/jpeg', 0.85);
-                
-                // Base64 boyutunu kontrol et (OCR.space limiti ~1MB)
-                const base64Size = (dataUrl.length * 3) / 4;
-                if (base64Size > 1000000) {
-                    // Çok büyükse kaliteyi düşür
-                    const smallerDataUrl = outputCanvas.toDataURL('image/jpeg', 0.7);
-                    resolve(smallerDataUrl);
-                } else {
-                    resolve(dataUrl);
-                }
+                // Mobilde daha düşük kalite (daha küçük dosya boyutu)
+                const quality = isMobile ? 0.8 : 0.9;
+                resolve(canvas.toDataURL('image/jpeg', quality));
             } catch (error) {
                 reject(error);
             }
         };
         
-        // Data URL veya blob URL için crossOrigin gerekmez
-        if (imageSrc.startsWith('data:') || imageSrc.startsWith('blob:')) {
-            img.src = imageSrc;
-        } else {
-            img.crossOrigin = 'anonymous';
-            img.src = imageSrc;
-        }
+        img.src = imageSrc;
     });
 }
 
@@ -517,7 +582,8 @@ async function captureAndAnalyze() {
         ctx.drawImage(videoElement, 0, 0);
         
         const imageData = canvasElement.toDataURL('image/jpeg', 0.9);
-        const optimizedImage = await optimizeImage(imageData, 1600);
+        // OCR.space API için 1024px optimal boyut
+        const optimizedImage = await optimizeImage(imageData, 1024);
         
         statusInfo.textContent = 'OCR işlemi başlatıldı...';
         
@@ -551,7 +617,7 @@ async function captureAndAnalyze() {
 }
 
 // Fotoğraf analiz butonu
-analyzeBtn.addEventListener('click', async () => {
+async function analyzePhoto() {
     if (!previewImage.src) {
         alert('Lütfen önce bir fotoğraf yükleyin!');
         return;
@@ -565,8 +631,8 @@ analyzeBtn.addEventListener('click', async () => {
         console.log('Fotoğraf analizi başlatılıyor...');
         loadingText.textContent = 'Görüntü optimize ediliyor...';
         
-        // Görüntüyü optimize et
-        const optimizedImage = await optimizeImage(previewImage.src, 1600);
+        // Görüntüyü optimize et - OCR.space API için 1024px optimal
+        const optimizedImage = await optimizeImage(previewImage.src, 1024);
         
         loadingText.textContent = 'OCR işlemi başlatıldı...';
         
@@ -584,25 +650,16 @@ analyzeBtn.addEventListener('click', async () => {
         
     } catch (error) {
         console.error('OCR hatası:', error);
-        console.error('Hata detayları:', {
-            message: error.message,
-            stack: error.stack,
-            name: error.name
-        });
-        
         loadingText.textContent = `HATA: ${error.message || 'Analiz başarısız'}`;
-        
-        // Mobil cihazlar için daha açıklayıcı hata mesajı
-        let errorMessage = error.message || 'Bilinmeyen hata';
-        if (errorMessage.includes('API hatası')) {
-            errorMessage = 'OCR servisi şu anda kullanılamıyor. Lütfen daha sonra tekrar deneyin.';
-        } else if (errorMessage.includes('çok büyük')) {
-            errorMessage = 'Görüntü çok büyük. Lütfen daha küçük bir fotoğraf deneyin.';
-        }
-        
-        alert(`Fotoğraf analiz edilirken bir hata oluştu:\n\n${errorMessage}\n\nKonsolu kontrol edin (F12).`);
+        alert(`Fotoğraf analiz edilirken bir hata oluştu: ${error.message || 'Bilinmeyen hata'}. Konsolu kontrol edin.`);
         loadingSection.style.display = 'none';
     }
+}
+
+analyzeBtn.addEventListener('click', analyzePhoto);
+analyzeBtn.addEventListener('touchend', (e) => {
+    e.preventDefault();
+    analyzePhoto();
 });
 
 // Sayfa kapatılırken kamerayı durdur

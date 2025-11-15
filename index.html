@@ -2,7 +2,10 @@
 <html lang="tr">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>Kargo Etiketi Telefon Numarası Arama</title>
     <link rel="stylesheet" href="style.css">
 </head>
@@ -42,7 +45,7 @@
             <!-- Fotoğraf Yükleme Bölümü -->
             <div class="photo-section" id="photoSection" style="display: none;">
                 <div class="upload-area" id="uploadArea">
-                    <input type="file" id="fileInput" accept="image/*" hidden>
+                    <input type="file" id="fileInput" accept="image/*" capture="environment" hidden>
                     <div class="upload-content">
                         <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
