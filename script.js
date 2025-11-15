@@ -31,6 +31,8 @@ let autoInterval = null;
 let isProcessing = false;
 let detectedNumbers = new Map();
 let currentMode = 'camera';
+let cameraWorker = null; // Worker'ı önceden oluşturup tekrar kullan
+let workerReady = false;
 
 // Mod değiştirme
 cameraModeBtn.addEventListener('click', () => switchMode('camera'));
@@ -79,6 +81,13 @@ startCameraBtn.addEventListener('click', async () => {
         startCameraBtn.style.display = 'none';
         stopCameraBtn.style.display = 'inline-block';
         toggleAutoBtn.style.display = 'inline-block';
+        
+        // Worker'ı önceden hazırla
+        if (!workerReady && typeof Tesseract !== 'undefined') {
+            statusInfo.textContent = 'OCR hazırlanıyor...';
+            await initializeCameraWorker();
+        }
+        
         statusInfo.textContent = 'Kamera hazır! Etiketi kameraya gösterin.';
         
     } catch (error) {
@@ -87,6 +96,29 @@ startCameraBtn.addEventListener('click', async () => {
         alert('Kamera erişimi gerekli. Lütfen tarayıcı ayarlarından kamera iznini verin.');
     }
 });
+
+// Camera worker'ı önceden oluştur
+async function initializeCameraWorker() {
+    if (cameraWorker || workerReady) return;
+    
+    try {
+        cameraWorker = await Tesseract.createWorker('tur+eng', 1, {
+            logger: () => {} // Gereksiz logları kapat
+        });
+        
+        // OCR ayarlarını optimize et - sadece rakamlar ve telefon karakterleri
+        await cameraWorker.setParameters({
+            tessedit_pageseg_mode: '6', // Tek tek blok modu (daha hızlı)
+            tessedit_char_whitelist: '0123456789+()- Tel:',
+        });
+        
+        workerReady = true;
+        console.log('Camera worker hazır!');
+    } catch (error) {
+        console.error('Worker oluşturma hatası:', error);
+        workerReady = false;
+    }
+}
 
 // Kamerayı durdur
 stopCameraBtn.addEventListener('click', () => {
@@ -131,6 +163,14 @@ function stopCamera() {
     overlayNumbers.innerHTML = '';
     detectedNumbers.clear();
     stopAutoDetection();
+    
+    // Worker'ı temizleme (isteğe bağlı - performans için tutabiliriz)
+    // if (cameraWorker) {
+    //     cameraWorker.terminate();
+    //     cameraWorker = null;
+    //     workerReady = false;
+    // }
+    
     statusInfo.textContent = 'Kamera durduruldu.';
 }
 
@@ -138,11 +178,16 @@ function stopCamera() {
 function startAutoDetection() {
     if (autoInterval) return;
     
+    // Worker hazır değilse hazırla
+    if (!workerReady && typeof Tesseract !== 'undefined') {
+        initializeCameraWorker();
+    }
+    
     autoInterval = setInterval(async () => {
         if (!isProcessing && videoElement.readyState === videoElement.HAVE_ENOUGH_DATA) {
             await captureAndAnalyze();
         }
-    }, 2000);
+    }, 1500); // 2 saniyeden 1.5 saniyeye düşürüldü
 }
 
 // Otomatik algılamayı durdur
@@ -322,7 +367,52 @@ window.addEventListener('load', () => {
     }
 });
 
-// Görüntüyü yakala ve analiz et (kamera için)
+// Görüntüyü optimize et (hızlandırma için)
+function optimizeImage(imageSrc, maxWidth = 800) {
+    return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+            const canvas = document.createElement('canvas');
+            let width = img.width;
+            let height = img.height;
+
+            // Görüntüyü yeniden boyutlandır (daha küçük = daha hızlı)
+            if (width > maxWidth) {
+                height = (height * maxWidth) / width;
+                width = maxWidth;
+            }
+
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+
+            // Görüntüyü çiz
+            ctx.drawImage(img, 0, 0, width, height);
+            
+            // Gri tonlama ve kontrast artırma (OCR için daha iyi)
+            const imageData = ctx.getImageData(0, 0, width, height);
+            const data = imageData.data;
+            
+            // Basit kontrast artırma
+            for (let i = 0; i < data.length; i += 4) {
+                // Gri tonlama
+                const gray = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+                // Kontrast artırma
+                const contrast = (gray - 128) * 1.3 + 128;
+                const final = Math.max(0, Math.min(255, contrast));
+                data[i] = final;
+                data[i + 1] = final;
+                data[i + 2] = final;
+            }
+            
+            ctx.putImageData(imageData, 0, 0);
+            resolve(canvas.toDataURL('image/jpeg', 0.6)); // Düşük kalite = daha hızlı
+        };
+        img.src = imageSrc;
+    });
+}
+
+// Görüntüyü yakala ve analiz et (kamera için - optimize edilmiş)
 async function captureAndAnalyze() {
     if (isProcessing || !videoElement.videoWidth) return;
     
@@ -336,37 +426,27 @@ async function captureAndAnalyze() {
     }
     
     try {
-        statusInfo.textContent = 'Analiz başlatılıyor...';
-        
+        // Görüntüyü yakala ve optimize et
         canvasElement.width = videoElement.videoWidth;
         canvasElement.height = videoElement.videoHeight;
         const ctx = canvasElement.getContext('2d');
         ctx.drawImage(videoElement, 0, 0);
         
-        const imageData = canvasElement.toDataURL('image/jpeg', 0.8);
+        const originalImageData = canvasElement.toDataURL('image/jpeg', 0.9);
+        const optimizedImageData = await optimizeImage(originalImageData, 800);
         
-        statusInfo.textContent = 'OCR worker oluşturuluyor...';
-        
-        let worker;
-        try {
-            worker = await Tesseract.createWorker('tur+eng', 1, {
-                logger: m => {
-                    console.log('OCR Progress:', m);
-                    if (m.status === 'recognizing text') {
-                        statusInfo.textContent = `OCR: ${Math.round(m.progress * 100)}%`;
-                        if (loadingText) {
-                            loadingText.textContent = `Telefon numarası algılanıyor... ${Math.round(m.progress * 100)}%`;
-                        }
-                    }
-                }
-            });
-        } catch (workerError) {
-            throw new Error(`Worker oluşturulamadı: ${workerError.message}`);
+        // Worker hazır değilse hazırla
+        if (!workerReady) {
+            statusInfo.textContent = 'OCR hazırlanıyor...';
+            await initializeCameraWorker();
         }
         
-        statusInfo.textContent = 'OCR işlemi başlatıldı...';
-        const { data: { text } } = await worker.recognize(imageData);
-        await worker.terminate();
+        if (!cameraWorker || !workerReady) {
+            throw new Error('OCR worker hazır değil');
+        }
+        
+        // Önceden oluşturulmuş worker'ı kullan
+        const { data: { text } } = await cameraWorker.recognize(optimizedImageData);
 
         console.log('OCR Sonucu:', text);
         statusInfo.textContent = 'Metin algılandı, telefon numaraları aranıyor...';
@@ -378,15 +458,22 @@ async function captureAndAnalyze() {
         if (phoneNumbers.length > 0) {
             displayNumbersOnOverlay(phoneNumbers, overlayNumbers);
             statusInfo.textContent = `${phoneNumbers.length} telefon numarası bulundu!`;
-        } else {
+        } else if (!isAutoMode) {
             statusInfo.textContent = 'Telefon numarası bulunamadı. Lütfen etiketi daha net gösterin.';
             console.log('Algılanan metin:', text);
         }
         
     } catch (error) {
         console.error('OCR hatası:', error);
-        statusInfo.textContent = `HATA: ${error.message || 'Analiz başarısız oldu'}`;
-        alert(`Analiz hatası: ${error.message || 'Bilinmeyen hata'}. Konsolu kontrol edin.`);
+        if (!isAutoMode) {
+            statusInfo.textContent = `HATA: ${error.message || 'Analiz başarısız oldu'}`;
+        }
+        // Worker hatası varsa yeniden oluştur
+        if (error.message.includes('worker') || error.message.includes('Worker')) {
+            cameraWorker = null;
+            workerReady = false;
+            await initializeCameraWorker();
+        }
     } finally {
         isProcessing = false;
     }
@@ -448,7 +535,12 @@ analyzeBtn.addEventListener('click', async () => {
     }
 });
 
-// Sayfa kapatılırken kamerayı durdur
-window.addEventListener('beforeunload', () => {
+// Sayfa kapatılırken kamerayı durdur ve worker'ı temizle
+window.addEventListener('beforeunload', async () => {
     stopCamera();
+    if (cameraWorker) {
+        await cameraWorker.terminate();
+        cameraWorker = null;
+        workerReady = false;
+    }
 });
