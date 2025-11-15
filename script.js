@@ -153,50 +153,6 @@ function stopAutoDetection() {
     }
 }
 
-// Görüntüyü yakala ve analiz et (kamera için)
-async function captureAndAnalyze() {
-    if (isProcessing || !videoElement.videoWidth) return;
-    
-    isProcessing = true;
-    
-    try {
-        canvasElement.width = videoElement.videoWidth;
-        canvasElement.height = videoElement.videoHeight;
-        const ctx = canvasElement.getContext('2d');
-        ctx.drawImage(videoElement, 0, 0);
-        
-        const imageData = canvasElement.toDataURL('image/jpeg', 0.8);
-        
-        const { data: { text } } = await Tesseract.recognize(
-            imageData,
-            'tur+eng',
-            {
-                logger: m => {
-                    if (m.status === 'recognizing text') {
-                        loadingText.textContent = 'Telefon numarası algılanıyor...';
-                    }
-                }
-            }
-        );
-
-        const phoneNumbers = extractPhoneNumbers(text);
-        
-        if (phoneNumbers.length > 0) {
-            displayNumbersOnOverlay(phoneNumbers, overlayNumbers);
-            statusInfo.textContent = `${phoneNumbers.length} telefon numarası bulundu!`;
-        } else if (!isAutoMode) {
-            statusInfo.textContent = 'Telefon numarası bulunamadı. Lütfen etiketi daha net gösterin.';
-        }
-        
-    } catch (error) {
-        console.error('OCR hatası:', error);
-        if (!isAutoMode) {
-            statusInfo.textContent = 'Analiz hatası. Lütfen tekrar deneyin.';
-        }
-    } finally {
-        isProcessing = false;
-    }
-}
 
 // Fotoğraf yükleme işlemleri
 uploadArea.addEventListener('click', () => {
@@ -244,36 +200,6 @@ function handleFile(file) {
     reader.readAsDataURL(file);
 }
 
-// Fotoğraf analiz butonu
-analyzeBtn.addEventListener('click', async () => {
-    if (!previewImage.src) return;
-
-    loadingSection.style.display = 'block';
-    previewSection.style.display = 'block';
-    loadingText.textContent = 'Fotoğraf analiz ediliyor...';
-
-    try {
-        const { data: { text } } = await Tesseract.recognize(
-            previewImage.src,
-            'tur+eng',
-            {
-                logger: m => {
-                    if (m.status === 'recognizing text') {
-                        loadingText.textContent = 'Telefon numarası algılanıyor...';
-                    }
-                }
-            }
-        );
-
-        const phoneNumbers = extractPhoneNumbers(text);
-        displayResults(phoneNumbers);
-        
-    } catch (error) {
-        console.error('OCR hatası:', error);
-        alert('Fotoğraf analiz edilirken bir hata oluştu. Lütfen tekrar deneyin.');
-        loadingSection.style.display = 'none';
-    }
-});
 
 // Reset butonu
 resetBtn.addEventListener('click', () => {
@@ -384,6 +310,143 @@ function formatPhoneNumber(phone) {
     }
     return phone;
 }
+
+// Tesseract.js yüklendiğini kontrol et
+window.addEventListener('load', () => {
+    if (typeof Tesseract === 'undefined') {
+        console.error('Tesseract.js yüklenemedi!');
+        statusInfo.textContent = 'HATA: Tesseract.js yüklenemedi. Lütfen sayfayı yenileyin.';
+        alert('OCR kütüphanesi yüklenemedi. Lütfen internet bağlantınızı kontrol edin ve sayfayı yenileyin.');
+    } else {
+        console.log('Tesseract.js başarıyla yüklendi');
+    }
+});
+
+// Görüntüyü yakala ve analiz et (kamera için)
+async function captureAndAnalyze() {
+    if (isProcessing || !videoElement.videoWidth) return;
+    
+    isProcessing = true;
+    
+    // Tesseract kontrolü
+    if (typeof Tesseract === 'undefined') {
+        statusInfo.textContent = 'HATA: OCR kütüphanesi yüklenmedi!';
+        isProcessing = false;
+        return;
+    }
+    
+    try {
+        statusInfo.textContent = 'Analiz başlatılıyor...';
+        
+        canvasElement.width = videoElement.videoWidth;
+        canvasElement.height = videoElement.videoHeight;
+        const ctx = canvasElement.getContext('2d');
+        ctx.drawImage(videoElement, 0, 0);
+        
+        const imageData = canvasElement.toDataURL('image/jpeg', 0.8);
+        
+        statusInfo.textContent = 'OCR worker oluşturuluyor...';
+        
+        let worker;
+        try {
+            worker = await Tesseract.createWorker('tur+eng', 1, {
+                logger: m => {
+                    console.log('OCR Progress:', m);
+                    if (m.status === 'recognizing text') {
+                        statusInfo.textContent = `OCR: ${Math.round(m.progress * 100)}%`;
+                        if (loadingText) {
+                            loadingText.textContent = `Telefon numarası algılanıyor... ${Math.round(m.progress * 100)}%`;
+                        }
+                    }
+                }
+            });
+        } catch (workerError) {
+            throw new Error(`Worker oluşturulamadı: ${workerError.message}`);
+        }
+        
+        statusInfo.textContent = 'OCR işlemi başlatıldı...';
+        const { data: { text } } = await worker.recognize(imageData);
+        await worker.terminate();
+
+        console.log('OCR Sonucu:', text);
+        statusInfo.textContent = 'Metin algılandı, telefon numaraları aranıyor...';
+
+        const phoneNumbers = extractPhoneNumbers(text);
+        
+        console.log('Bulunan numaralar:', phoneNumbers);
+        
+        if (phoneNumbers.length > 0) {
+            displayNumbersOnOverlay(phoneNumbers, overlayNumbers);
+            statusInfo.textContent = `${phoneNumbers.length} telefon numarası bulundu!`;
+        } else {
+            statusInfo.textContent = 'Telefon numarası bulunamadı. Lütfen etiketi daha net gösterin.';
+            console.log('Algılanan metin:', text);
+        }
+        
+    } catch (error) {
+        console.error('OCR hatası:', error);
+        statusInfo.textContent = `HATA: ${error.message || 'Analiz başarısız oldu'}`;
+        alert(`Analiz hatası: ${error.message || 'Bilinmeyen hata'}. Konsolu kontrol edin.`);
+    } finally {
+        isProcessing = false;
+    }
+}
+
+// Fotoğraf analiz butonu
+analyzeBtn.addEventListener('click', async () => {
+    if (!previewImage.src) {
+        alert('Lütfen önce bir fotoğraf yükleyin!');
+        return;
+    }
+
+    // Tesseract kontrolü
+    if (typeof Tesseract === 'undefined') {
+        alert('OCR kütüphanesi yüklenmedi! Lütfen sayfayı yenileyin.');
+        return;
+    }
+
+    loadingSection.style.display = 'block';
+    previewSection.style.display = 'block';
+    loadingText.textContent = 'Fotoğraf analiz ediliyor...';
+
+    try {
+        console.log('Fotoğraf analizi başlatılıyor...');
+        loadingText.textContent = 'OCR worker oluşturuluyor...';
+        
+        let worker;
+        try {
+            worker = await Tesseract.createWorker('tur+eng', 1, {
+                logger: m => {
+                    console.log('OCR Progress:', m);
+                    if (m.status === 'recognizing text') {
+                        loadingText.textContent = `Telefon numarası algılanıyor... ${Math.round(m.progress * 100)}%`;
+                    }
+                }
+            });
+        } catch (workerError) {
+            throw new Error(`Worker oluşturulamadı: ${workerError.message}`);
+        }
+        
+        loadingText.textContent = 'OCR işlemi başlatıldı...';
+        const { data: { text } } = await worker.recognize(previewImage.src);
+        await worker.terminate();
+
+        console.log('OCR Sonucu:', text);
+        loadingText.textContent = 'Metin algılandı, telefon numaraları aranıyor...';
+
+        const phoneNumbers = extractPhoneNumbers(text);
+        
+        console.log('Bulunan numaralar:', phoneNumbers);
+        
+        displayResults(phoneNumbers);
+        
+    } catch (error) {
+        console.error('OCR hatası:', error);
+        loadingText.textContent = `HATA: ${error.message || 'Analiz başarısız'}`;
+        alert(`Fotoğraf analiz edilirken bir hata oluştu: ${error.message || 'Bilinmeyen hata'}. Konsolu kontrol edin.`);
+        loadingSection.style.display = 'none';
+    }
+});
 
 // Sayfa kapatılırken kamerayı durdur
 window.addEventListener('beforeunload', () => {
