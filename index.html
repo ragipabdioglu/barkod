@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kargo Etiketi Telefon Numarası Arama</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📦 Kargo Etiketi Telefon Numarası Arama</h1>
+            <p>Fotoğraf yükleyin veya kamerayı kullanın, telefon numarası otomatik algılansın</p>
+        </header>
+
+        <main>
+            <!-- Mod Seçimi -->
+            <div class="mode-selector">
+                <button class="mode-btn active" id="cameraModeBtn" data-mode="camera">
+                    📷 Kamera
+                </button>
+                <button class="mode-btn" id="photoModeBtn" data-mode="photo">
+                    📸 Fotoğraf
+                </button>
+            </div>
+
+            <!-- Kamera Bölümü -->
+            <div class="camera-section" id="cameraSection">
+                <div class="camera-container">
+                    <video id="videoElement" autoplay playsinline></video>
+                    <canvas id="canvasElement" style="display: none;"></canvas>
+                    <div id="overlayNumbers" class="overlay-numbers"></div>
+                </div>
+                <div class="camera-controls">
+                    <button class="btn btn-primary" id="startCameraBtn">📷 Kamerayı Başlat</button>
+                    <button class="btn btn-secondary" id="stopCameraBtn" style="display: none;">⏹️ Kamerayı Durdur</button>
+                    <button class="btn btn-primary" id="toggleAutoBtn" style="display: none;">🔄 Otomatik Algılama: Kapalı</button>
+                </div>
+                <div class="status-info" id="statusInfo"></div>
+            </div>
+
+            <!-- Fotoğraf Yükleme Bölümü -->
+            <div class="photo-section" id="photoSection" style="display: none;">
+                <div class="upload-area" id="uploadArea">
+                    <input type="file" id="fileInput" accept="image/*" hidden>
+                    <div class="upload-content">
+                        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                            <polyline points="17 8 12 3 7 8"></polyline>
+                            <line x1="12" y1="3" x2="12" y2="15"></line>
+                        </svg>
+                        <p>Fotoğrafı buraya sürükleyin veya tıklayın</p>
+                        <span class="file-info">PNG, JPG veya JPEG formatında</span>
+                    </div>
+                </div>
+
+                <div class="preview-section" id="previewSection" style="display: none;">
+                    <h2>Fotoğraf Önizleme</h2>
+                    <div class="image-container">
+                        <img id="previewImage" alt="Yüklenen fotoğraf">
+                        <div id="photoOverlayNumbers" class="overlay-numbers"></div>
+                    </div>
+                    <button class="btn btn-primary" id="analyzeBtn">Telefon Numarasını Algıla</button>
+                    <button class="btn btn-secondary" id="resetBtn">Yeni Fotoğraf Yükle</button>
+                </div>
+            </div>
+
+            <div class="loading-section" id="loadingSection" style="display: none;">
+                <div class="spinner"></div>
+                <p id="loadingText">Fotoğraf analiz ediliyor...</p>
+            </div>
+        </main>
+
+        <footer>
+            <p>Kargo etiketlerindeki telefon numaralarını hızlıca bulun ve arayın</p>
+        </footer>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.0.4/dist/tesseract.min.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>
+
