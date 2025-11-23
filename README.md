@@ -2,15 +2,26 @@
 
 Kargo etiketlerindeki telefon numaralarını fotoğraf yükleyerek veya kameradan canlı olarak algılayan ve tek tıkla aramaya yönlendiren web uygulaması.
 
+## ✨ Yeni Özellikler (v2.0)
+
+- 🚀 **%50 Daha Hızlı Barkod Okuma** - 15 FPS tarama hızı
+- 🎯 **Görsel Tarama Çerçevesi** - Barkodu nereye tutacağınızı gösterir
+- 💡 **Akıllı Yardım İpuçları** - Kullanımı kolaylaştıran rehber
+- 🎨 **Geliştirilmiş UI/UX** - Daha büyük butonlar, daha iyi animasyonlar
+- ⚡ **Daha Hızlı Tepki** - 0.5 saniye debounce süresi
+- 📱 **Optimize Mobil Deneyim** - Touch-friendly arayüz
+- 🎭 **Animasyonlu Geri Bildirim** - Her işlem için görsel feedback
+
 ## Özellikler
 
 - 📸 **Fotoğraf Yükleme:** Fotoğraf yükleyerek telefon numarası algılama
 - 📷 **Kameradan Canlı Görüntü:** Kameradan canlı görüntü alma
-- 🔍 OCR (Optical Character Recognition) ile otomatik telefon numarası algılama
-- 🔄 Otomatik algılama modu (kamera için, her 2 saniyede bir kontrol)
-- 📞 Algılanan numaraları görüntü üzerinde gösterip tek tıkla arama
-- 📱 Mobil uyumlu tasarım
-- 🇹🇷 Türkiye telefon numarası formatlarını destekler
+- 🔍 **Barkod + OCR:** Hem barkod hem metin algılama (paralel çalışma)
+- 🔄 **Otomatik Algılama:** Sürekli tarama modu
+- 📞 **Tek Tıkla Arama:** Algılanan numaraları görüntü üzerinde gösterip tek tıkla arama
+- 📱 **Mobil Uyumlu:** Responsive tasarım
+- 🇹🇷 **Türkiye Formatları:** Tüm Türkiye telefon numarası formatlarını destekler
+- 🎯 **5 Barkod Formatı:** QR Code, Code 128, Code 39, EAN-13, EAN-8
 
 ## Kullanım
 
@@ -40,17 +51,40 @@ Kargo etiketlerindeki telefon numaralarını fotoğraf yükleyerek veya kamerada
 - **JavaScript** - İşlevsellik
 - **OCR.space API** - Hızlı ve ücretsiz OCR servisi
 
+## 🎯 Performans İyileştirmeleri
+
+- **15 FPS Tarama:** Önceki 10 FPS'den %50 daha hızlı
+- **0.5 Saniye Debounce:** Daha hızlı tepki süresi
+- **300x300px Tarama Alanı:** Daha geniş algılama bölgesi
+- **Native Barkod API:** Tarayıcı native API kullanımı (destekleniyorsa)
+- **Optimize Görüntü İşleme:** Daha hızlı OCR
+
+## 💡 Kullanım İpuçları
+
+1. **Kamera Modu:**
+   - Etiketi yeşil çerçevenin içine getirin
+   - Otomatik algılama için "Otomatik" butonunu açın
+   - Manuel algılama için ekrana dokunun
+
+2. **Fotoğraf Modu:**
+   - Net ve iyi ışıklı fotoğraf çekin
+   - Barkod ve metin net görünmeli
+   - Sistem hem barkodu hem metni tarar
+
+3. **En İyi Sonuçlar İçin:**
+   - İyi ışıklandırma kullanın
+   - Etiketi düz tutun
+   - Kamerayı sabit tutun
+   - Etiketi çerçeveye tam sığdırın
+
 ## Notlar
 
-- **HTTPS gereklidir:** Kameraya erişim için HTTPS bağlantısı gereklidir (localhost'ta çalışır). Fotoğraf modu için HTTPS gerekmez.
-- **OCR.space API:** Ücretsiz public API key kullanılıyor (günlük sınırlı istek). Daha fazla istek için ücretsiz API key alabilirsiniz: https://ocr.space/ocrapi/freekey
-- İnternet bağlantısı gereklidir (OCR.space API kullanılıyor)
-- Etiket ne kadar net görünürse, algılama o kadar doğru olur
+- **HTTPS gereklidir:** Kameraya erişim için HTTPS bağlantısı gereklidir (localhost'ta çalışır)
+- **OCR.space API:** Ücretsiz public API key kullanılıyor (günlük sınırlı istek)
+- İnternet bağlantısı gereklidir
 - Telefon numaraları Türkiye formatlarına göre algılanır (0XXX XXX XX XX)
-- Otomatik mod (kamera) her 1 saniyede bir kontrol yapar (OCR.space hızlı olduğu için)
 - Mobil cihazlarda arka kamera kullanılır
-- Fotoğraf modu: PNG, JPG, JPEG formatları desteklenir
-- **Hız:** OCR.space API, Tesseract.js'den çok daha hızlıdır (genellikle 1-2 saniye)
+- **Hız:** Barkod okuma ~0.5 saniye, OCR ~1-2 saniye
 
 ## Tarayıcı Desteği
 

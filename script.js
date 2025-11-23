@@ -44,7 +44,7 @@ class BarcodeScanner {
         this.scanning = false;
         this.lastDetectedCode = null;
         this.lastDetectedTime = 0;
-        this.debounceMs = 1000; // 1 saniye debounce
+        this.debounceMs = 500; // 0.5 saniye debounce - Daha hızlı tepki
     }
 
     async start() {
@@ -57,17 +57,21 @@ class BarcodeScanner {
             // Html5Qrcode instance oluştur
             this.scanner = new Html5Qrcode(this.videoElementId);
             
-            // Desteklenen formatlar
+            // Desteklenen formatlar - Hız optimizasyonu
             const config = {
-                fps: 10, // 10 FPS throttling
-                qrbox: { width: 250, height: 250 },
+                fps: 15, // 15 FPS - Daha hızlı tarama
+                qrbox: { width: 300, height: 300 }, // Daha büyük tarama alanı
+                aspectRatio: 1.0,
                 formatsToSupport: [
                     Html5QrcodeSupportedFormats.QR_CODE,
                     Html5QrcodeSupportedFormats.CODE_128,
                     Html5QrcodeSupportedFormats.CODE_39,
                     Html5QrcodeSupportedFormats.EAN_13,
                     Html5QrcodeSupportedFormats.EAN_8
-                ]
+                ],
+                experimentalFeatures: {
+                    useBarCodeDetectorIfSupported: true // Tarayıcı native barkod algılama kullan
+                }
             };
 
             // Kamera başlat
@@ -223,9 +227,25 @@ class UIManager {
     showStatus(message, type = 'info') {
         if (!this.statusElement) return;
         
-        this.statusElement.textContent = message;
+        // İkon seç
+        let icon = 'ℹ️';
+        if (type === 'error') {
+            icon = '❌';
+        } else if (type === 'success') {
+            icon = '✅';
+        } else if (message.includes('Barkod')) {
+            icon = '📱';
+        } else if (message.includes('Kamera')) {
+            icon = '📷';
+        }
         
-        // Tip'e göre stil (opsiyonel)
+        // HTML içeriği oluştur
+        this.statusElement.innerHTML = `
+            <span class="status-icon">${icon}</span>
+            <span class="status-text">${message}</span>
+        `;
+        
+        // Tip'e göre stil
         this.statusElement.className = 'status-info';
         if (type === 'error') {
             this.statusElement.style.color = '#721c24';
@@ -403,10 +423,22 @@ async function startCamera() {
         stopCameraBtn.style.display = 'inline-block';
         toggleAutoBtn.style.display = 'inline-block';
         
+        // Tarama çerçevesini göster
+        const scanFrame = document.getElementById('scanFrame');
+        if (scanFrame) {
+            scanFrame.style.display = 'block';
+        }
+        
+        // Yardım ipucunu gizle
+        const helpTip = document.getElementById('helpTip');
+        if (helpTip) {
+            helpTip.style.display = 'none';
+        }
+        
         if (!barcodeScanner || !barcodeScanner.isScanning()) {
-            cameraUIManager.showStatus('Kamera hazır! Etiketi kameraya gösterin (OCR modu).');
+            cameraUIManager.showStatus('📸 Kamera hazır! Etiketi çerçeveye getirin (OCR modu)');
         } else {
-            cameraUIManager.showStatus('Kamera hazır! Etiketi kameraya gösterin (Barkod + OCR modu).');
+            cameraUIManager.showStatus('✨ Barkod + OCR aktif! Etiketi çerçeveye getirin');
         }
         
     } catch (error) {
@@ -572,15 +604,15 @@ function toggleAutoDetection() {
     isAutoMode = !isAutoMode;
     
     if (isAutoMode) {
-        toggleAutoBtn.textContent = '🔄 Otomatik Algılama: Açık';
+        toggleAutoBtn.innerHTML = '<span class="btn-icon">✅</span><span class="btn-text">Otomatik: Açık</span>';
         toggleAutoBtn.classList.add('btn-active');
         startAutoDetection();
-        statusInfo.textContent = 'Otomatik algılama aktif. Telefon numaraları otomatik bulunacak.';
+        cameraUIManager.showStatus('🔄 Otomatik algılama aktif! Telefon numaraları otomatik bulunacak.');
     } else {
-        toggleAutoBtn.textContent = '🔄 Otomatik Algılama: Kapalı';
+        toggleAutoBtn.innerHTML = '<span class="btn-icon">🔄</span><span class="btn-text">Otomatik: Kapalı</span>';
         toggleAutoBtn.classList.remove('btn-active');
         stopAutoDetection();
-        statusInfo.textContent = 'Otomatik algılama kapalı. Manuel algılama için ekrana dokunun.';
+        cameraUIManager.showStatus('👆 Manuel mod. Algılama için ekrana dokunun.');
     }
 }
 
@@ -623,13 +655,25 @@ async function stopCamera() {
     stopCameraBtn.style.display = 'none';
     toggleAutoBtn.style.display = 'none';
     
+    // Tarama çerçevesini gizle
+    const scanFrame = document.getElementById('scanFrame');
+    if (scanFrame) {
+        scanFrame.style.display = 'none';
+    }
+    
+    // Yardım ipucunu göster
+    const helpTip = document.getElementById('helpTip');
+    if (helpTip) {
+        helpTip.style.display = 'flex';
+    }
+    
     // UI ve DetectionCoordinator'ı temizle
     cameraUIManager.clearOverlay();
     detectionCoordinator.clear();
     detectedNumbers.clear();
     stopAutoDetection();
     
-    cameraUIManager.showStatus('Kamera durduruldu.');
+    cameraUIManager.showStatus('⏹️ Kamera durduruldu. Tekrar başlatmak için butona tıklayın.');
 }
 
 // Otomatik algılamayı başlat
@@ -843,6 +887,9 @@ window.addEventListener('load', () => {
     cameraUIManager = new UIManager(statusInfo, overlayNumbers);
     photoUIManager = new UIManager(null, photoOverlayNumbers);
     console.log('UIManager instances oluşturuldu');
+    
+    // Başlangıç mesajı
+    cameraUIManager.showStatus('🚀 Hazır! Kamerayı başlatın ve barkodu tarayın.');
 });
 
 // Görüntüyü optimize et (OCR.space için - mobilde daha küçük)

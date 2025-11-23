@@ -31,17 +31,45 @@
 
             <!-- Kamera Bölümü -->
             <div class="camera-section" id="cameraSection">
+                <!-- Yardım İpucu -->
+                <div class="help-tip" id="helpTip">
+                    <div class="help-icon">💡</div>
+                    <div class="help-text">
+                        <strong>İpucu:</strong> Barkodu veya etiketi kamera ortasına getirin. Sistem otomatik algılayacak!
+                    </div>
+                </div>
+                
                 <div class="camera-container">
                     <video id="videoElement" autoplay playsinline></video>
                     <canvas id="canvasElement" style="display: none;"></canvas>
+                    <!-- Tarama hedef çerçevesi -->
+                    <div class="scan-frame" id="scanFrame" style="display: none;">
+                        <div class="corner top-left"></div>
+                        <div class="corner top-right"></div>
+                        <div class="corner bottom-left"></div>
+                        <div class="corner bottom-right"></div>
+                        <div class="scan-line"></div>
+                    </div>
                     <div id="overlayNumbers" class="overlay-numbers"></div>
                 </div>
                 <div class="camera-controls">
-                    <button class="btn btn-primary" id="startCameraBtn">📷 Kamerayı Başlat</button>
-                    <button class="btn btn-secondary" id="stopCameraBtn" style="display: none;">⏹️ Kamerayı Durdur</button>
-                    <button class="btn btn-primary" id="toggleAutoBtn" style="display: none;">🔄 Otomatik Algılama: Kapalı</button>
+                    <button class="btn btn-primary btn-large" id="startCameraBtn">
+                        <span class="btn-icon">📷</span>
+                        <span class="btn-text">Kamerayı Başlat</span>
+                    </button>
+                    <button class="btn btn-secondary" id="stopCameraBtn" style="display: none;">
+                        <span class="btn-icon">⏹️</span>
+                        <span class="btn-text">Durdur</span>
+                    </button>
+                    <button class="btn btn-primary" id="toggleAutoBtn" style="display: none;">
+                        <span class="btn-icon">🔄</span>
+                        <span class="btn-text">Otomatik: Kapalı</span>
+                    </button>
                 </div>
-                <div class="status-info" id="statusInfo"></div>
+                <div class="status-info" id="statusInfo">
+                    <span class="status-icon">ℹ️</span>
+                    <span class="status-text">Başlamak için kamerayı açın</span>
+                </div>
             </div>
 
             <!-- Fotoğraf Yükleme Bölümü -->
@@ -49,13 +77,11 @@
                 <div class="upload-area" id="uploadArea">
                     <input type="file" id="fileInput" accept="image/*" capture="environment" hidden>
                     <div class="upload-content">
-                        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                            <polyline points="17 8 12 3 7 8"></polyline>
-                            <line x1="12" y1="3" x2="12" y2="15"></line>
-                        </svg>
-                        <p>Fotoğrafı buraya sürükleyin veya tıklayın</p>
-                        <span class="file-info">PNG, JPG veya JPEG formatında</span>
+                        <div class="upload-icon">📸</div>
+                        <p class="upload-title">Kargo Etiketi Fotoğrafı Yükleyin</p>
+                        <p class="upload-subtitle">Sürükle-bırak yapın veya tıklayın</p>
+                        <span class="file-info">✓ PNG, JPG, JPEG formatları desteklenir</span>
+                        <span class="file-info">✓ Barkod ve metin otomatik algılanır</span>
                     </div>
                 </div>
 
@@ -67,8 +93,14 @@
                     </div>
                     <!-- Hidden reader div for barcode scanning -->
                     <div id="reader" style="display: none;"></div>
-                    <button class="btn btn-primary" id="analyzeBtn">Telefon Numarasını Algıla</button>
-                    <button class="btn btn-secondary" id="resetBtn">Yeni Fotoğraf Yükle</button>
+                    <button class="btn btn-primary btn-large" id="analyzeBtn">
+                        <span class="btn-icon">🔍</span>
+                        <span class="btn-text">Telefon Numarasını Algıla</span>
+                    </button>
+                    <button class="btn btn-secondary" id="resetBtn">
+                        <span class="btn-icon">🔄</span>
+                        <span class="btn-text">Yeni Fotoğraf Yükle</span>
+                    </button>
                 </div>
             </div>
 
