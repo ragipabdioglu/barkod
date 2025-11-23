@@ -32,6 +32,262 @@ let isProcessing = false;
 let detectedNumbers = new Map();
 let currentMode = 'camera';
 
+// ============================================
+// BarcodeScanner Sınıfı
+// ============================================
+class BarcodeScanner {
+    constructor(videoElementId, onDetected, onError) {
+        this.videoElementId = videoElementId;
+        this.onDetected = onDetected;
+        this.onError = onError;
+        this.scanner = null;
+        this.scanning = false;
+        this.lastDetectedCode = null;
+        this.lastDetectedTime = 0;
+        this.debounceMs = 1000; // 1 saniye debounce
+    }
+
+    async start() {
+        if (this.scanning) {
+            console.warn('BarcodeScanner zaten çalışıyor');
+            return;
+        }
+
+        try {
+            // Html5Qrcode instance oluştur
+            this.scanner = new Html5Qrcode(this.videoElementId);
+            
+            // Desteklenen formatlar
+            const config = {
+                fps: 10, // 10 FPS throttling
+                qrbox: { width: 250, height: 250 },
+                formatsToSupport: [
+                    Html5QrcodeSupportedFormats.QR_CODE,
+                    Html5QrcodeSupportedFormats.CODE_128,
+                    Html5QrcodeSupportedFormats.CODE_39,
+                    Html5QrcodeSupportedFormats.EAN_13,
+                    Html5QrcodeSupportedFormats.EAN_8
+                ]
+            };
+
+            // Kamera başlat
+            await this.scanner.start(
+                { facingMode: "environment" }, // Arka kamera
+                config,
+                (decodedText, decodedResult) => {
+                    this.handleBarcodeDetected(decodedText, decodedResult);
+                },
+                (errorMessage) => {
+                    // Sessiz hata - sürekli tarama sırasında normal
+                }
+            );
+
+            this.scanning = true;
+            console.log('BarcodeScanner başlatıldı');
+        } catch (error) {
+            console.error('BarcodeScanner başlatma hatası:', error);
+            this.scanning = false;
+            if (this.onError) {
+                this.onError(error);
+            }
+            throw error;
+        }
+    }
+
+    handleBarcodeDetected(decodedText, decodedResult) {
+        const now = Date.now();
+        
+        // Debouncing - aynı barkod 1 saniye içinde tekrar işlenmesin
+        if (this.lastDetectedCode === decodedText && 
+            (now - this.lastDetectedTime) < this.debounceMs) {
+            return;
+        }
+
+        this.lastDetectedCode = decodedText;
+        this.lastDetectedTime = now;
+
+        const format = decodedResult.result.format.formatName;
+        console.log(`Barkod okundu: ${format} - ${decodedText}`);
+
+        if (this.onDetected) {
+            this.onDetected(decodedText, format);
+        }
+    }
+
+    async stop() {
+        if (!this.scanning || !this.scanner) {
+            return;
+        }
+
+        try {
+            await this.scanner.stop();
+            this.scanner.clear();
+            this.scanner = null;
+            this.scanning = false;
+            this.lastDetectedCode = null;
+            this.lastDetectedTime = 0;
+            console.log('BarcodeScanner durduruldu');
+        } catch (error) {
+            console.error('BarcodeScanner durdurma hatası:', error);
+            throw error;
+        }
+    }
+
+    isScanning() {
+        return this.scanning;
+    }
+
+    getSupportedFormats() {
+        return [
+            'QR_CODE',
+            'CODE_128',
+            'CODE_39',
+            'EAN_13',
+            'EAN_8'
+        ];
+    }
+}
+
+// BarcodeScanner instance
+let barcodeScanner = null;
+
+// ============================================
+// DetectionCoordinator Sınıfı
+// ============================================
+class DetectionCoordinator {
+    constructor() {
+        this.barcodeResults = new Map(); // barkod text -> {format, timestamp, phoneNumbers}
+        this.ocrResults = new Map(); // timestamp -> phoneNumbers
+        this.allPhoneNumbers = new Set(); // Tüm benzersiz numaralar
+    }
+
+    addBarcodeResult(text, format) {
+        const phoneNumbers = extractPhoneNumbers(text);
+        
+        this.barcodeResults.set(text, {
+            format: format,
+            timestamp: Date.now(),
+            phoneNumbers: phoneNumbers
+        });
+
+        // Benzersiz numaraları ekle
+        phoneNumbers.forEach(num => this.allPhoneNumbers.add(num));
+        
+        console.log(`DetectionCoordinator: Barkod sonucu eklendi - ${phoneNumbers.length} numara`);
+    }
+
+    addOCRResult(text) {
+        const phoneNumbers = extractPhoneNumbers(text);
+        
+        this.ocrResults.set(Date.now(), phoneNumbers);
+
+        // Benzersiz numaraları ekle
+        phoneNumbers.forEach(num => this.allPhoneNumbers.add(num));
+        
+        console.log(`DetectionCoordinator: OCR sonucu eklendi - ${phoneNumbers.length} numara`);
+    }
+
+    getUniquePhoneNumbers() {
+        // Set otomatik olarak tekrarları filtreler
+        return Array.from(this.allPhoneNumbers);
+    }
+
+    clear() {
+        this.barcodeResults.clear();
+        this.ocrResults.clear();
+        this.allPhoneNumbers.clear();
+        console.log('DetectionCoordinator: Tüm sonuçlar temizlendi');
+    }
+
+    getStats() {
+        return {
+            barcodeCount: this.barcodeResults.size,
+            ocrCount: this.ocrResults.size,
+            uniquePhoneNumbers: this.allPhoneNumbers.size
+        };
+    }
+}
+
+// DetectionCoordinator instance
+let detectionCoordinator = new DetectionCoordinator();
+
+// ============================================
+// UIManager Sınıfı
+// ============================================
+class UIManager {
+    constructor(statusElement, overlayElement) {
+        this.statusElement = statusElement;
+        this.overlayElement = overlayElement;
+    }
+
+    showStatus(message, type = 'info') {
+        if (!this.statusElement) return;
+        
+        this.statusElement.textContent = message;
+        
+        // Tip'e göre stil (opsiyonel)
+        this.statusElement.className = 'status-info';
+        if (type === 'error') {
+            this.statusElement.style.color = '#721c24';
+            this.statusElement.style.background = '#f8d7da';
+        } else if (type === 'success') {
+            this.statusElement.style.color = '#155724';
+            this.statusElement.style.background = '#d4edda';
+        } else {
+            this.statusElement.style.color = '#666';
+            this.statusElement.style.background = '#f8f9ff';
+        }
+    }
+
+    displayPhoneNumbers(numbers, source = 'mixed') {
+        if (!this.overlayElement) return;
+        
+        this.clearOverlay();
+        
+        numbers.forEach((phone, index) => {
+            const phoneElement = document.createElement('div');
+            phoneElement.className = 'phone-overlay';
+            phoneElement.textContent = formatPhoneNumber(phone);
+            phoneElement.style.top = `${20 + index * 60}px`;
+            phoneElement.style.left = '20px';
+            
+            // Tel: URL oluştur
+            const telUrl = `tel:${phone}`;
+            
+            function callPhone(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                window.location.href = telUrl;
+            }
+            
+            phoneElement.addEventListener('click', callPhone);
+            phoneElement.addEventListener('touchend', callPhone);
+            
+            // Kaynak bilgisi ekle (opsiyonel)
+            if (source !== 'mixed') {
+                phoneElement.title = `Kaynak: ${source}`;
+            }
+            
+            this.overlayElement.appendChild(phoneElement);
+        });
+    }
+
+    clearOverlay() {
+        if (!this.overlayElement) return;
+        this.overlayElement.innerHTML = '';
+    }
+
+    showError(error) {
+        const errorMessage = error.message || error.toString();
+        this.showStatus(`Hata: ${errorMessage}`, 'error');
+        console.error('UIManager Error:', error);
+    }
+}
+
+// UIManager instances
+let cameraUIManager = null;
+let photoUIManager = null;
+
 // OCR.space API - Ücretsiz API key (günlük 25,000 istek)
 // Kendi API key'inizi almak için: https://ocr.space/ocrapi/freekey
 const OCR_API_KEY = 'helloworld'; // Ücretsiz public key (sınırlı)
@@ -84,7 +340,7 @@ const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/
 // Kamerayı başlat
 async function startCamera() {
     try {
-        statusInfo.textContent = 'Kamera erişimi isteniyor...';
+        cameraUIManager.showStatus('Kamera erişimi isteniyor...');
         
         // Mobil için optimize edilmiş kamera ayarları
         const constraints = {
@@ -108,10 +364,50 @@ async function startCamera() {
             // Mobilde bazen play() başarısız olabilir ama video çalışır
         }
 
+        // BarcodeScanner'ı başlat
+        try {
+            barcodeScanner = new BarcodeScanner(
+                'videoElement',
+                (barcodeText, format) => {
+                    // Barkod algılandığında
+                    console.log(`Barkod algılandı: ${format} - ${barcodeText}`);
+                    cameraUIManager.showStatus('Barkod okundu', 'success');
+                    
+                    // DetectionCoordinator'a ekle
+                    detectionCoordinator.addBarcodeResult(barcodeText, format);
+                    
+                    // Benzersiz numaraları al ve göster
+                    const uniqueNumbers = detectionCoordinator.getUniquePhoneNumbers();
+                    if (uniqueNumbers.length > 0) {
+                        cameraUIManager.displayPhoneNumbers(uniqueNumbers, 'barcode');
+                        cameraUIManager.showStatus(`${uniqueNumbers.length} telefon numarası bulundu!`, 'success');
+                    } else {
+                        cameraUIManager.showStatus('Barkod okundu ama telefon numarası bulunamadı');
+                    }
+                },
+                (error) => {
+                    // Barkod okuma hatası - sessiz fallback, OCR devam eder
+                    console.warn('Barkod okuma hatası:', error);
+                }
+            );
+            
+            await barcodeScanner.start();
+            cameraUIManager.showStatus('Barkod algılama aktif');
+        } catch (barcodeError) {
+            console.error('BarcodeScanner başlatma hatası:', barcodeError);
+            cameraUIManager.showStatus('Barkod algılama başlatılamadı, OCR modu aktif');
+            // OCR ile devam et
+        }
+
         startCameraBtn.style.display = 'none';
         stopCameraBtn.style.display = 'inline-block';
         toggleAutoBtn.style.display = 'inline-block';
-        statusInfo.textContent = 'Kamera hazır! Etiketi kameraya gösterin.';
+        
+        if (!barcodeScanner || !barcodeScanner.isScanning()) {
+            cameraUIManager.showStatus('Kamera hazır! Etiketi kameraya gösterin (OCR modu).');
+        } else {
+            cameraUIManager.showStatus('Kamera hazır! Etiketi kameraya gösterin (Barkod + OCR modu).');
+        }
         
     } catch (error) {
         console.error('Kamera hatası:', error);
@@ -125,7 +421,7 @@ async function startCamera() {
             errorMsg = 'Kamera kullanılamıyor. Başka bir uygulama kamera kullanıyor olabilir.';
         }
         
-        statusInfo.textContent = errorMsg;
+        cameraUIManager.showStatus(errorMsg, 'error');
         alert(errorMsg);
     }
 }
@@ -306,7 +602,17 @@ videoElement.addEventListener('click', handleVideoInteraction);
 videoElement.addEventListener('touchend', handleVideoInteraction);
 
 // Kamerayı durdurma fonksiyonu
-function stopCamera() {
+async function stopCamera() {
+    // BarcodeScanner'ı durdur
+    if (barcodeScanner && barcodeScanner.isScanning()) {
+        try {
+            await barcodeScanner.stop();
+            barcodeScanner = null;
+        } catch (error) {
+            console.error('BarcodeScanner durdurma hatası:', error);
+        }
+    }
+    
     if (stream) {
         stream.getTracks().forEach(track => track.stop());
         stream = null;
@@ -316,10 +622,14 @@ function stopCamera() {
     startCameraBtn.style.display = 'inline-block';
     stopCameraBtn.style.display = 'none';
     toggleAutoBtn.style.display = 'none';
-    overlayNumbers.innerHTML = '';
+    
+    // UI ve DetectionCoordinator'ı temizle
+    cameraUIManager.clearOverlay();
+    detectionCoordinator.clear();
     detectedNumbers.clear();
     stopAutoDetection();
-    statusInfo.textContent = 'Kamera durduruldu.';
+    
+    cameraUIManager.showStatus('Kamera durduruldu.');
 }
 
 // Otomatik algılamayı başlat
@@ -521,6 +831,18 @@ window.addEventListener('load', () => {
     if (OCR_API_KEY === 'helloworld') {
         console.warn('Ücretsiz public API key kullanılıyor. Daha fazla istek için: https://ocr.space/ocrapi/freekey');
     }
+    
+    // html5-qrcode kütüphanesi kontrolü
+    if (typeof Html5Qrcode !== 'undefined') {
+        console.log('html5-qrcode kütüphanesi başarıyla yüklendi');
+    } else {
+        console.error('html5-qrcode kütüphanesi yüklenemedi!');
+    }
+    
+    // UIManager'ları başlat
+    cameraUIManager = new UIManager(statusInfo, overlayNumbers);
+    photoUIManager = new UIManager(null, photoOverlayNumbers);
+    console.log('UIManager instances oluşturuldu');
 });
 
 // Görüntüyü optimize et (OCR.space için - mobilde daha küçük)
@@ -573,7 +895,7 @@ async function captureAndAnalyze() {
     isProcessing = true;
     
     try {
-        statusInfo.textContent = 'Görüntü yakalanıyor...';
+        cameraUIManager.showStatus('Görüntü yakalanıyor...');
         
         // Görüntüyü yakala
         canvasElement.width = videoElement.videoWidth;
@@ -585,30 +907,34 @@ async function captureAndAnalyze() {
         // OCR.space API için 1024px optimal boyut
         const optimizedImage = await optimizeImage(imageData, 1024);
         
-        statusInfo.textContent = 'OCR işlemi başlatıldı...';
+        cameraUIManager.showStatus('OCR işlemi başlatıldı...');
         
         // OCR.space API ile OCR
         const text = await recognizeTextWithOCR(optimizedImage);
 
         console.log('OCR Sonucu:', text);
-        statusInfo.textContent = 'Metin algılandı, telefon numaraları aranıyor...';
+        cameraUIManager.showStatus('Metin algılandı, telefon numaraları aranıyor...');
 
-        const phoneNumbers = extractPhoneNumbers(text);
+        // OCR sonucunu DetectionCoordinator'a ekle
+        detectionCoordinator.addOCRResult(text);
         
-        console.log('Bulunan numaralar:', phoneNumbers);
+        // Benzersiz numaraları al (barkod + OCR birleşik)
+        const uniqueNumbers = detectionCoordinator.getUniquePhoneNumbers();
         
-        if (phoneNumbers.length > 0) {
-            displayNumbersOnOverlay(phoneNumbers, overlayNumbers);
-            statusInfo.textContent = `${phoneNumbers.length} telefon numarası bulundu!`;
+        console.log('Bulunan benzersiz numaralar:', uniqueNumbers);
+        
+        if (uniqueNumbers.length > 0) {
+            cameraUIManager.displayPhoneNumbers(uniqueNumbers, 'mixed');
+            cameraUIManager.showStatus(`${uniqueNumbers.length} telefon numarası bulundu!`, 'success');
         } else if (!isAutoMode) {
-            statusInfo.textContent = 'Telefon numarası bulunamadı. Lütfen etiketi daha net gösterin.';
+            cameraUIManager.showStatus('Telefon numarası bulunamadı. Lütfen etiketi daha net gösterin.');
             console.log('Algılanan metin:', text);
         }
         
     } catch (error) {
         console.error('OCR hatası:', error);
         if (!isAutoMode) {
-            statusInfo.textContent = `HATA: ${error.message || 'Analiz başarısız oldu'}`;
+            cameraUIManager.showError(error);
             alert(`Analiz hatası: ${error.message || 'Bilinmeyen hata'}. Konsolu kontrol edin.`);
         }
     } finally {
@@ -627,29 +953,51 @@ async function analyzePhoto() {
     previewSection.style.display = 'block';
     loadingText.textContent = 'Fotoğraf analiz ediliyor...';
 
+    // Fotoğraf için DetectionCoordinator temizle
+    const photoCoordinator = new DetectionCoordinator();
+
     try {
         console.log('Fotoğraf analizi başlatılıyor...');
-        loadingText.textContent = 'Görüntü optimize ediliyor...';
         
-        // Görüntüyü optimize et - OCR.space API için 1024px optimal
+        // 1. Barkod okuma dene
+        loadingText.textContent = 'Barkod taranıyor...';
+        try {
+            const html5QrCode = new Html5Qrcode("reader");
+            const imageFile = await fetch(previewImage.src).then(r => r.blob());
+            
+            try {
+                const decodedText = await html5QrCode.scanFile(imageFile, false);
+                console.log('Barkod okundu:', decodedText);
+                photoCoordinator.addBarcodeResult(decodedText, 'PHOTO_SCAN');
+                loadingText.textContent = 'Barkod başarıyla okundu!';
+            } catch (barcodeError) {
+                console.log('Barkod okunamadı, OCR ile devam ediliyor...');
+            }
+        } catch (scannerError) {
+            console.warn('Barkod tarayıcı hatası:', scannerError);
+        }
+        
+        // 2. OCR ile metin algılama
+        loadingText.textContent = 'Görüntü optimize ediliyor...';
         const optimizedImage = await optimizeImage(previewImage.src, 1024);
         
         loadingText.textContent = 'OCR işlemi başlatıldı...';
-        
-        // OCR.space API ile OCR
         const text = await recognizeTextWithOCR(optimizedImage);
 
         console.log('OCR Sonucu:', text);
-        loadingText.textContent = 'Metin algılandı, telefon numaraları aranıyor...';
-
-        const phoneNumbers = extractPhoneNumbers(text);
+        photoCoordinator.addOCRResult(text);
         
-        console.log('Bulunan numaralar:', phoneNumbers);
+        loadingText.textContent = 'Sonuçlar birleştiriliyor...';
         
-        displayResults(phoneNumbers);
+        // 3. Benzersiz numaraları al (barkod + OCR)
+        const uniqueNumbers = photoCoordinator.getUniquePhoneNumbers();
+        
+        console.log('Bulunan benzersiz numaralar:', uniqueNumbers);
+        
+        displayResults(uniqueNumbers);
         
     } catch (error) {
-        console.error('OCR hatası:', error);
+        console.error('Analiz hatası:', error);
         loadingText.textContent = `HATA: ${error.message || 'Analiz başarısız'}`;
         alert(`Fotoğraf analiz edilirken bir hata oluştu: ${error.message || 'Bilinmeyen hata'}. Konsolu kontrol edin.`);
         loadingSection.style.display = 'none';

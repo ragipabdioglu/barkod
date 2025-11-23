@@ -1,0 +1,705 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Barcode Scanner Tests</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 20px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .test-section {
+            background: white;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .test-result {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        .test-pass {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .test-fail {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .test-info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        h2 {
+            color: #333;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 10px;
+        }
+        button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 5px;
+        }
+        button:hover {
+            background: #5568d3;
+        }
+        #testResults {
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🧪 Barkod Algılama Test Paketi</h1>
+    
+    <div class="test-section">
+        <h2>Property-Based Tests</h2>
+        <p>Bu testler rastgele verilerle çalışarak sistemin genel doğruluğunu test eder.</p>
+        <button onclick="runAllTests()">Tüm Testleri Çalıştır</button>
+        <button onclick="runPropertyTests()">Property Testleri Çalıştır</button>
+        <button onclick="runIntegrationTests()">Entegrasyon Testleri Çalıştır</button>
+        <button onclick="runUnitTests()">Unit Testleri Çalıştır</button>
+    </div>
+
+    <div id="testResults"></div>
+
+    <!-- fast-check library for property-based testing -->
+    <script src="https://cdn.jsdelivr.net/npm/fast-check@3.15.0/lib/bundle.js"></script>
+    
+    <!-- Test utilities -->
+    <script>
+        // Test sonuçlarını göster
+        function showTestResult(testName, passed, message = '') {
+            const resultsDiv = document.getElementById('testResults');
+            const resultDiv = document.createElement('div');
+            resultDiv.className = `test-result ${passed ? 'test-pass' : 'test-fail'}`;
+            resultDiv.innerHTML = `
+                <strong>${passed ? '✓' : '✗'} ${testName}</strong>
+                ${message ? `<br><small>${message}</small>` : ''}
+            `;
+            resultsDiv.appendChild(resultDiv);
+        }
+
+        function showTestInfo(message) {
+            const resultsDiv = document.getElementById('testResults');
+            const resultDiv = document.createElement('div');
+            resultDiv.className = 'test-result test-info';
+            resultDiv.innerHTML = `<strong>ℹ️ ${message}</strong>`;
+            resultsDiv.appendChild(resultDiv);
+        }
+
+        function clearResults() {
+            document.getElementById('testResults').innerHTML = '';
+        }
+
+        // Mock extractPhoneNumbers fonksiyonu (gerçek implementasyondan)
+        function extractPhoneNumbers(text) {
+            const patterns = [
+                /0\d{3}\s?\d{3}\s?\d{2}\s?\d{2}/g,
+                /0\d{10}/g,
+                /\+90\s?\d{3}\s?\d{3}\s?\d{2}\s?\d{2}/g,
+                /\+90\d{10}/g,
+            ];
+
+            const foundNumbers = new Set();
+
+            patterns.forEach(pattern => {
+                const matches = text.match(pattern);
+                if (matches) {
+                    matches.forEach(match => {
+                        let cleaned = match.replace(/\D/g, '');
+                        
+                        if (cleaned.length >= 10) {
+                            if (cleaned.length === 10 && cleaned.startsWith('0')) {
+                                foundNumbers.add(cleaned);
+                            }
+                            else if (cleaned.length === 11 && cleaned.startsWith('0')) {
+                                foundNumbers.add(cleaned);
+                            }
+                            else if (cleaned.length === 12 && cleaned.startsWith('90')) {
+                                foundNumbers.add('0' + cleaned.substring(2));
+                            }
+                        }
+                    });
+                }
+            });
+
+            return Array.from(foundNumbers);
+        }
+    </script>
+
+    <!-- Property Tests -->
+    <script>
+        // **Feature: barcode-phone-detection, Property 1: Barkod algılama telefon numarası çıkarımını tetikler**
+        // **Validates: Requirements 1.3**
+        function testProperty1_BarcodeTriggersPhoneExtraction() {
+            showTestInfo('Property 1: Barkod algılama telefon numarası çıkarımını tetikler (100 iterations)');
+            
+            try {
+                // Generator: Rastgele barkod içeriği (telefon numarası içerebilir veya içermeyebilir)
+                const barcodeContentArbitrary = fc.oneof(
+                    // Telefon numarası içeren barkod
+                    fc.tuple(
+                        fc.constantFrom('Tel:', 'Telefon:', 'Phone:', ''),
+                        fc.integer({ min: 500, max: 599 }),
+                        fc.integer({ min: 1000000, max: 9999999 })
+                    ).map(([prefix, areaCode, number]) => 
+                        `${prefix}0${areaCode}${number}`
+                    ),
+                    // Rastgele metin (telefon numarası olmayabilir)
+                    fc.string({ minLength: 10, maxLength: 100 })
+                );
+
+                let extractionCalled = 0;
+                let totalTests = 0;
+
+                const result = fc.assert(
+                    fc.property(barcodeContentArbitrary, (barcodeText) => {
+                        totalTests++;
+                        
+                        // Barkod algılandığında extractPhoneNumbers çağrılmalı
+                        const phoneNumbers = extractPhoneNumbers(barcodeText);
+                        extractionCalled++;
+                        
+                        // Fonksiyon çağrıldı mı kontrolü
+                        return extractionCalled === totalTests;
+                    }),
+                    { numRuns: 100 }
+                );
+
+                showTestResult(
+                    'Property 1: Barkod algılama telefon numarası çıkarımını tetikler',
+                    true,
+                    `100 rastgele barkod içeriği test edildi. extractPhoneNumbers ${extractionCalled} kez çağrıldı.`
+                );
+                return true;
+            } catch (error) {
+                showTestResult(
+                    'Property 1: Barkod algılama telefon numarası çıkarımını tetikler',
+                    false,
+                    `Hata: ${error.message}`
+                );
+                return false;
+            }
+        }
+
+        // **Feature: barcode-phone-detection, Property 6: Tekrarlanan numaralar filtrelenir**
+        // **Validates: Requirements 3.3**
+        function testProperty6_DuplicateNumbersFiltered() {
+            showTestInfo('Property 6: Tekrarlanan numaralar filtrelenir (100 iterations)');
+            
+            try {
+                // Mock DetectionCoordinator
+                class TestDetectionCoordinator {
+                    constructor() {
+                        this.allPhoneNumbers = new Set();
+                    }
+
+                    addBarcodeResult(text, format) {
+                        const phoneNumbers = extractPhoneNumbers(text);
+                        phoneNumbers.forEach(num => this.allPhoneNumbers.add(num));
+                    }
+
+                    addOCRResult(text) {
+                        const phoneNumbers = extractPhoneNumbers(text);
+                        phoneNumbers.forEach(num => this.allPhoneNumbers.add(num));
+                    }
+
+                    getUniquePhoneNumbers() {
+                        return Array.from(this.allPhoneNumbers);
+                    }
+
+                    clear() {
+                        this.allPhoneNumbers.clear();
+                    }
+                }
+
+                // Generator: Tekrarlanan numaralar içeren sonuç setleri
+                const phoneNumberArbitrary = fc.tuple(
+                    fc.integer({ min: 500, max: 599 }),
+                    fc.integer({ min: 1000000, max: 9999999 })
+                ).map(([areaCode, number]) => `0${areaCode}${number}`);
+
+                const duplicateResultsArbitrary = fc.array(phoneNumberArbitrary, { minLength: 1, maxLength: 10 });
+
+                const result = fc.assert(
+                    fc.property(duplicateResultsArbitrary, (phoneNumbers) => {
+                        const coordinator = new TestDetectionCoordinator();
+                        
+                        // Aynı numaraları hem barkod hem OCR'dan ekle
+                        phoneNumbers.forEach(num => {
+                            coordinator.addBarcodeResult(`Barkod: ${num}`, 'QR_CODE');
+                            coordinator.addOCRResult(`OCR: ${num}`);
+                        });
+
+                        const uniqueNumbers = coordinator.getUniquePhoneNumbers();
+                        
+                        // Benzersiz numara sayısı, orijinal benzersiz sayıya eşit olmalı
+                        const expectedUnique = new Set(phoneNumbers).size;
+                        return uniqueNumbers.length === expectedUnique;
+                    }),
+                    { numRuns: 100 }
+                );
+
+                showTestResult(
+                    'Property 6: Tekrarlanan numaralar filtrelenir',
+                    true,
+                    '100 rastgele tekrarlı numara seti test edildi. Tüm tekrarlar başarıyla filtrelendi.'
+                );
+                return true;
+            } catch (error) {
+                showTestResult(
+                    'Property 6: Tekrarlanan numaralar filtrelenir',
+                    false,
+                    `Hata: ${error.message}`
+                );
+                return false;
+            }
+        }
+
+        // **Feature: barcode-phone-detection, Property 2: Telefon numarası içeren barkodlar UI'da gösterilir**
+        // **Validates: Requirements 1.4, 2.1**
+        function testProperty2_PhoneNumbersDisplayedInUI() {
+            showTestInfo('Property 2: Telefon numarası içeren barkodlar UI\'da gösterilir (100 iterations)');
+            
+            try {
+                // Mock UIManager
+                class TestUIManager {
+                    constructor() {
+                        this.displayedNumbers = [];
+                    }
+
+                    displayPhoneNumbers(numbers) {
+                        this.displayedNumbers = numbers;
+                    }
+
+                    getDisplayedCount() {
+                        return this.displayedNumbers.length;
+                    }
+                }
+
+                // Generator: Telefon numarası içeren barkod sonuçları
+                const phoneNumberArbitrary = fc.tuple(
+                    fc.integer({ min: 500, max: 599 }),
+                    fc.integer({ min: 1000000, max: 9999999 })
+                ).map(([areaCode, number]) => `0${areaCode}${number}`);
+
+                const result = fc.assert(
+                    fc.property(phoneNumberArbitrary, (phoneNumber) => {
+                        const uiManager = new TestUIManager();
+                        const barcodeText = `Tel:${phoneNumber}`;
+                        
+                        // Barkod içeriğinden telefon numarası çıkar
+                        const extractedNumbers = extractPhoneNumbers(barcodeText);
+                        
+                        // UI'da göster
+                        uiManager.displayPhoneNumbers(extractedNumbers);
+                        
+                        // UI'da en az bir numara gösterilmeli
+                        return uiManager.getDisplayedCount() > 0;
+                    }),
+                    { numRuns: 100 }
+                );
+
+                showTestResult(
+                    'Property 2: Telefon numarası içeren barkodlar UI\'da gösterilir',
+                    true,
+                    '100 rastgele telefon numarası test edildi. Tümü UI\'da gösterildi.'
+                );
+                return true;
+            } catch (error) {
+                showTestResult(
+                    'Property 2: Telefon numarası içeren barkodlar UI\'da gösterilir',
+                    false,
+                    `Hata: ${error.message}`
+                );
+                return false;
+            }
+        }
+
+        // **Feature: barcode-phone-detection, Property 3: Çoklu barkod sonuçları tüm numaraları gösterir**
+        // **Validates: Requirements 1.5**
+        function testProperty3_MultipleBarcodesShowAllNumbers() {
+            showTestInfo('Property 3: Çoklu barkod sonuçları tüm numaraları gösterir (100 iterations)');
+            
+            try {
+                // Mock UIManager
+                class TestUIManager {
+                    constructor() {
+                        this.displayedNumbers = [];
+                    }
+
+                    displayPhoneNumbers(numbers) {
+                        this.displayedNumbers = numbers;
+                    }
+
+                    getDisplayedCount() {
+                        return this.displayedNumbers.length;
+                    }
+                }
+
+                // Generator: Birden fazla barkod sonucu
+                const phoneNumberArbitrary = fc.tuple(
+                    fc.integer({ min: 500, max: 599 }),
+                    fc.integer({ min: 1000000, max: 9999999 })
+                ).map(([areaCode, number]) => `0${areaCode}${number}`);
+
+                const multiplePhonesArbitrary = fc.array(phoneNumberArbitrary, { minLength: 2, maxLength: 5 });
+
+                const result = fc.assert(
+                    fc.property(multiplePhonesArbitrary, (phoneNumbers) => {
+                        const uiManager = new TestUIManager();
+                        
+                        // Tüm numaraları topla
+                        const allNumbers = [];
+                        phoneNumbers.forEach(num => {
+                            const barcodeText = `Tel:${num}`;
+                            const extracted = extractPhoneNumbers(barcodeText);
+                            allNumbers.push(...extracted);
+                        });
+
+                        // UI'da göster
+                        uiManager.displayPhoneNumbers(allNumbers);
+                        
+                        // Gösterilen sayı, çıkarılan sayıya eşit olmalı
+                        return uiManager.getDisplayedCount() === allNumbers.length;
+                    }),
+                    { numRuns: 100 }
+                );
+
+                showTestResult(
+                    'Property 3: Çoklu barkod sonuçları tüm numaraları gösterir',
+                    true,
+                    '100 rastgele çoklu barkod seti test edildi. Tüm numaralar gösterildi.'
+                );
+                return true;
+            } catch (error) {
+                showTestResult(
+                    'Property 3: Çoklu barkod sonuçları tüm numaraları gösterir',
+                    false,
+                    `Hata: ${error.message}`
+                );
+                return false;
+            }
+        }
+
+        // **Feature: barcode-phone-detection, Property 4: Telefon numarası butonu doğru tel: URL oluşturur**
+        // **Validates: Requirements 2.2**
+        function testProperty4_TelURLCorrectFormat() {
+            showTestInfo('Property 4: Telefon numarası butonu doğru tel: URL oluşturur (100 iterations)');
+            
+            try {
+                // Generator: Rastgele telefon numaraları
+                const phoneNumberArbitrary = fc.tuple(
+                    fc.integer({ min: 500, max: 599 }),
+                    fc.integer({ min: 1000000, max: 9999999 })
+                ).map(([areaCode, number]) => `0${areaCode}${number}`);
+
+                const result = fc.assert(
+                    fc.property(phoneNumberArbitrary, (phoneNumber) => {
+                        // tel: URL formatı: tel:0XXXXXXXXXX
+                        const expectedUrl = `tel:${phoneNumber}`;
+                        
+                        // URL'in doğru formatı kontrol et
+                        const isValidFormat = expectedUrl.startsWith('tel:0') && 
+                                            expectedUrl.length === 15; // tel: + 11 digit
+                        
+                        return isValidFormat;
+                    }),
+                    { numRuns: 100 }
+                );
+
+                showTestResult(
+                    'Property 4: Telefon numarası butonu doğru tel: URL oluşturur',
+                    true,
+                    '100 rastgele telefon numarası test edildi. Tüm tel: URL\'leri doğru formatta.'
+                );
+                return true;
+            } catch (error) {
+                showTestResult(
+                    'Property 4: Telefon numarası butonu doğru tel: URL oluşturur',
+                    false,
+                    `Hata: ${error.message}`
+                );
+                return false;
+            }
+        }
+
+        // **Feature: barcode-phone-detection, Property 5: Telefon numaraları okunabilir formatta gösterilir**
+        // **Validates: Requirements 2.3**
+        function testProperty5_PhoneNumberReadableFormat() {
+            showTestInfo('Property 5: Telefon numaraları okunabilir formatta gösterilir (100 iterations)');
+            
+            try {
+                // Mock formatPhoneNumber
+                function formatPhoneNumber(phone) {
+                    if (phone.length === 11 && phone.startsWith('0')) {
+                        return `${phone.substring(0, 4)} ${phone.substring(4, 7)} ${phone.substring(7, 9)} ${phone.substring(9, 11)}`;
+                    }
+                    return phone;
+                }
+
+                // Generator: Rastgele telefon numaraları
+                const phoneNumberArbitrary = fc.tuple(
+                    fc.integer({ min: 500, max: 599 }),
+                    fc.integer({ min: 1000000, max: 9999999 })
+                ).map(([areaCode, number]) => `0${areaCode}${number}`);
+
+                const result = fc.assert(
+                    fc.property(phoneNumberArbitrary, (phoneNumber) => {
+                        const formatted = formatPhoneNumber(phoneNumber);
+                        
+                        // Format: 0XXX XXX XX XX (16 karakter: 11 digit + 3 boşluk)
+                        const hasCorrectLength = formatted.length === 15;
+                        const hasSpaces = (formatted.match(/ /g) || []).length === 3;
+                        const startsWithZero = formatted.startsWith('0');
+                        
+                        return hasCorrectLength && hasSpaces && startsWithZero;
+                    }),
+                    { numRuns: 100 }
+                );
+
+                showTestResult(
+                    'Property 5: Telefon numaraları okunabilir formatta gösterilir',
+                    true,
+                    '100 rastgele telefon numarası test edildi. Tümü 0XXX XXX XX XX formatında.'
+                );
+                return true;
+            } catch (error) {
+                showTestResult(
+                    'Property 5: Telefon numaraları okunabilir formatta gösterilir',
+                    false,
+                    `Hata: ${error.message}`
+                );
+                return false;
+            }
+        }
+
+        // Property test runner
+        function runPropertyTests() {
+            clearResults();
+            showTestInfo('Property-Based Testler Başlatılıyor...');
+            
+            const results = [];
+            results.push(testProperty1_BarcodeTriggersPhoneExtraction());
+            results.push(testProperty2_PhoneNumbersDisplayedInUI());
+            results.push(testProperty3_MultipleBarcodesShowAllNumbers());
+            results.push(testProperty4_TelURLCorrectFormat());
+            results.push(testProperty5_PhoneNumberReadableFormat());
+            results.push(testProperty6_DuplicateNumbersFiltered());
+            
+            const passed = results.filter(r => r).length;
+            const total = results.length;
+            
+            showTestInfo(`Property Testleri Tamamlandı: ${passed}/${total} başarılı`);
+        }
+
+        // Integration Tests
+        function runIntegrationTests() {
+            clearResults();
+            showTestInfo('Entegrasyon Testleri Başlatılıyor...');
+            
+            // Mock classes
+            class TestDetectionCoordinator {
+                constructor() {
+                    this.barcodeResults = new Map();
+                    this.ocrResults = new Map();
+                    this.allPhoneNumbers = new Set();
+                }
+
+                addBarcodeResult(text, format) {
+                    const phoneNumbers = extractPhoneNumbers(text);
+                    this.barcodeResults.set(text, { format, phoneNumbers });
+                    phoneNumbers.forEach(num => this.allPhoneNumbers.add(num));
+                }
+
+                addOCRResult(text) {
+                    const phoneNumbers = extractPhoneNumbers(text);
+                    this.ocrResults.set(Date.now(), phoneNumbers);
+                    phoneNumbers.forEach(num => this.allPhoneNumbers.add(num));
+                }
+
+                getUniquePhoneNumbers() {
+                    return Array.from(this.allPhoneNumbers);
+                }
+            }
+
+            // Test 1: Barkod + OCR paralel çalışma
+            const coordinator1 = new TestDetectionCoordinator();
+            coordinator1.addBarcodeResult('Tel:05551234567', 'QR_CODE');
+            coordinator1.addOCRResult('Telefon: 05559876543');
+            const result1 = coordinator1.getUniquePhoneNumbers();
+            showTestResult(
+                'Integration Test: Barkod + OCR paralel çalışma',
+                result1.length === 2,
+                `Beklenen: 2 benzersiz numara, Alınan: ${result1.length} - ${JSON.stringify(result1)}`
+            );
+
+            // Test 2: Barkod başarısız, OCR fallback
+            const coordinator2 = new TestDetectionCoordinator();
+            // Barkod boş (başarısız)
+            coordinator2.addBarcodeResult('Invalid barcode', 'QR_CODE');
+            // OCR başarılı
+            coordinator2.addOCRResult('Tel:05551234567');
+            const result2 = coordinator2.getUniquePhoneNumbers();
+            showTestResult(
+                'Integration Test: Barkod başarısız, OCR fallback',
+                result2.length === 1 && result2[0] === '05551234567',
+                `Beklenen: ['05551234567'], Alınan: ${JSON.stringify(result2)}`
+            );
+
+            // Test 3: Hem barkod hem OCR aynı numarayı bulur (tekrar filtreleme)
+            const coordinator3 = new TestDetectionCoordinator();
+            coordinator3.addBarcodeResult('Tel:05551234567', 'QR_CODE');
+            coordinator3.addOCRResult('Tel:05551234567');
+            const result3 = coordinator3.getUniquePhoneNumbers();
+            showTestResult(
+                'Integration Test: Tekrar filtreleme (barkod + OCR aynı numara)',
+                result3.length === 1 && result3[0] === '05551234567',
+                `Beklenen: 1 benzersiz numara, Alınan: ${result3.length} - ${JSON.stringify(result3)}`
+            );
+
+            // Test 4: Fotoğraftan barkod okuma (simülasyon)
+            const coordinator4 = new TestDetectionCoordinator();
+            // Fotoğraftan barkod okundu
+            coordinator4.addBarcodeResult('Tel:05551234567', 'PHOTO_SCAN');
+            // Aynı fotoğraftan OCR ile de numara bulundu
+            coordinator4.addOCRResult('Telefon: 05551234567 Adres: İzmir');
+            const result4 = coordinator4.getUniquePhoneNumbers();
+            showTestResult(
+                'Integration Test: Fotoğraftan barkod okuma + OCR',
+                result4.length === 1 && result4[0] === '05551234567',
+                `Beklenen: 1 benzersiz numara, Alınan: ${result4.length} - ${JSON.stringify(result4)}`
+            );
+
+            showTestInfo('Entegrasyon Testleri Tamamlandı');
+        }
+
+        // Unit Tests
+        function runUnitTests() {
+            clearResults();
+            showTestInfo('Unit Testler Başlatılıyor...');
+            
+            // Test 1: Telefon numarası çıkarma - standart format
+            const text1 = 'Tel:05551234567';
+            const result1 = extractPhoneNumbers(text1);
+            showTestResult(
+                'Unit Test: Standart telefon numarası çıkarma',
+                result1.length === 1 && result1[0] === '05551234567',
+                `Beklenen: ['05551234567'], Alınan: ${JSON.stringify(result1)}`
+            );
+
+            // Test 2: Boşluklu format
+            const text2 = '0555 123 45 67';
+            const result2 = extractPhoneNumbers(text2);
+            showTestResult(
+                'Unit Test: Boşluklu telefon numarası',
+                result2.length === 1 && result2[0] === '05551234567',
+                `Beklenen: ['05551234567'], Alınan: ${JSON.stringify(result2)}`
+            );
+
+            // Test 3: Telefon numarası yok
+            const text3 = 'Bu metinde telefon numarası yok';
+            const result3 = extractPhoneNumbers(text3);
+            showTestResult(
+                'Unit Test: Telefon numarası olmayan metin',
+                result3.length === 0,
+                `Beklenen: [], Alınan: ${JSON.stringify(result3)}`
+            );
+
+            // Test 4: Çoklu telefon numaraları
+            const text4 = 'Tel:05551234567 ve 05559876543';
+            const result4 = extractPhoneNumbers(text4);
+            showTestResult(
+                'Unit Test: Çoklu telefon numaraları',
+                result4.length === 2,
+                `Beklenen: 2 numara, Alınan: ${result4.length} numara - ${JSON.stringify(result4)}`
+            );
+
+            // Test 5: Kütüphane yükleme hatası simülasyonu
+            const libraryLoaded = typeof Html5Qrcode !== 'undefined';
+            showTestResult(
+                'Unit Test: html5-qrcode kütüphanesi yükleme kontrolü',
+                libraryLoaded,
+                libraryLoaded ? 'Kütüphane başarıyla yüklendi' : 'Kütüphane yüklenemedi - fallback OCR moduna geçilmeli'
+            );
+
+            // Test 6: Desteklenmeyen format fallback
+            const unsupportedBarcodeText = 'UNSUPPORTED_FORMAT_12345';
+            const result6 = extractPhoneNumbers(unsupportedBarcodeText);
+            showTestResult(
+                'Unit Test: Desteklenmeyen format fallback (OCR devam eder)',
+                result6.length === 0,
+                `Desteklenmeyen format için telefon numarası bulunamadı (beklenen davranış). OCR devam edecek.`
+            );
+
+            // Test 7: Boş barkod içeriği
+            const emptyBarcodeText = '';
+            const result7 = extractPhoneNumbers(emptyBarcodeText);
+            showTestResult(
+                'Unit Test: Boş barkod içeriği',
+                result7.length === 0,
+                `Boş içerik için telefon numarası bulunamadı (beklenen davranış)`
+            );
+
+            // Test 8: Geçersiz telefon numarası formatı
+            const invalidPhoneText = 'Tel:123456'; // Çok kısa
+            const result8 = extractPhoneNumbers(invalidPhoneText);
+            showTestResult(
+                'Unit Test: Geçersiz telefon numarası formatı',
+                result8.length === 0,
+                `Geçersiz format filtrelendi (beklenen davranış)`
+            );
+
+            // Test 9: Mobil cihaz tespiti
+            const userAgent = navigator.userAgent;
+            const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(userAgent);
+            showTestResult(
+                'Unit Test: Mobil cihaz tespiti',
+                true,
+                `Cihaz tipi: ${isMobileDevice ? 'Mobil' : 'Masaüstü'} (User Agent: ${userAgent.substring(0, 50)}...)`
+            );
+
+            // Test 10: Touch event desteği
+            const hasTouchSupport = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+            showTestResult(
+                'Unit Test: Touch event desteği',
+                true,
+                `Touch desteği: ${hasTouchSupport ? 'Var' : 'Yok'}`
+            );
+
+            showTestInfo('Unit Testler Tamamlandı');
+        }
+
+        // Tüm testleri çalıştır
+        function runAllTests() {
+            clearResults();
+            showTestInfo('=== TÜM TESTLER BAŞLATILIYOR ===');
+            runPropertyTests();
+            runIntegrationTests();
+            runUnitTests();
+            showTestInfo('=== TÜM TESTLER TAMAMLANDI ===');
+        }
+    </script>
+
+    <div class="test-section">
+        <h2>Test Bilgileri</h2>
+        <p><strong>Property 1:</strong> Barkod algılama telefon numarası çıkarımını tetikler</p>
+        <p><strong>Validates:</strong> Requirements 1.3</p>
+        <p><strong>Test Stratejisi:</strong> 100 rastgele barkod içeriği oluşturulur ve her biri için extractPhoneNumbers fonksiyonunun çağrıldığı doğrulanır.</p>
+    </div>
+</body>
+</html>

@@ -8,6 +8,8 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>Kargo Etiketi Telefon Numarası Arama</title>
     <link rel="stylesheet" href="style.css">
+    <!-- html5-qrcode library for barcode scanning -->
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 </head>
 <body>
     <div class="container">
@@ -63,6 +65,8 @@
                         <img id="previewImage" alt="Yüklenen fotoğraf">
                         <div id="photoOverlayNumbers" class="overlay-numbers"></div>
                     </div>
+                    <!-- Hidden reader div for barcode scanning -->
+                    <div id="reader" style="display: none;"></div>
                     <button class="btn btn-primary" id="analyzeBtn">Telefon Numarasını Algıla</button>
                     <button class="btn btn-secondary" id="resetBtn">Yeni Fotoğraf Yükle</button>
                 </div>
